@@ -4,10 +4,21 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Nodemailer Transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
 // Middleware
 app.use(cors());
@@ -43,7 +54,13 @@ const productSchema = new mongoose.Schema({
 });
 
 const bookingSchema = new mongoose.Schema({
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' }, // Legacy single product
+  items: [{
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    name: String,
+    pricePerDay: Number,
+    imageUrl: String
+  }],
   userName: String,
   userEmail: String,
   userAddress: String,
@@ -54,6 +71,8 @@ const bookingSchema = new mongoose.Schema({
   totalDays: Number,
   totalPrice: Number,
   status: { type: String, enum: ['Active', 'Returned'], default: 'Active' },
+  returnCondition: { type: String, enum: ['Good', 'Bad'], default: 'Good' },
+  returnNotes: String,
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -65,6 +84,9 @@ const userSchema = new mongoose.Schema({
   address: String,
   accountType: { type: String, enum: ['Private', 'Company'], default: 'Private' },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  otp: String,
+  otpExpiry: Date,
+  isVerified: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -76,20 +98,95 @@ const User = mongoose.model('User', userSchema);
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { fullName, email, password, mobile, address, accountType } = req.body;
-    const role = 'user';
-    const user = new User({ fullName, email, password, mobile, address, accountType, role });
+    
+    // Check if user already exists
+    let user = await User.findOne({ email });
+    if (user) {
+      // If user exists, check if password matches to allow seamless login
+      let isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch && password === user.password) isMatch = true; // Fallback for legacy plain text
+
+      if (isMatch) {
+        return res.json({ 
+          message: 'Existing user logged in.',
+          user: { 
+            fullName: user.fullName, 
+            email: user.email, 
+            mobile: user.mobile, 
+            address: user.address, 
+            role: user.role 
+          } 
+        });
+      }
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create new user (Auto-verified for now)
+    user = new User({ 
+      fullName, email, password: hashedPassword, 
+      mobile, address, accountType, 
+      isVerified: true 
+    });
+
     await user.save();
-    res.status(201).json({ message: 'User registered', user: { fullName, email, mobile, address, role } });
+
+    // Skip email sending for now as per user request
+    /*
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: 'Lensmen Rentals - Registration Verification OTP',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #0870b8; text-align: center;">VERIFICATION CODE</h2>
+          <p>Hello <strong>${user.fullName}</strong>,</p>
+          <p>Welcome to Lensmen Rentals! Your registration verification code is:</p>
+          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
+            ${otp}
+          </div>
+          <p style="color: #666; font-size: 12px; text-align: center;">This code will expire in 10 minutes.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    */
+
+    res.status(201).json({ 
+      message: 'Registration successful',
+      user: { 
+        fullName: user.fullName, 
+        email: user.email, 
+        mobile: user.mobile, 
+        address: user.address, 
+        role: user.role 
+      } 
+    });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email, password });
+    const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+
+    // Check password (with plain-text fallback for all legacy accounts)
+    let isMatch = await bcrypt.compare(password, user.password);
+    
+    // Fallback for plain text
+    if (!isMatch && password === user.password) {
+      isMatch = true;
+    }
+
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+
     res.json({ 
       user: { 
         fullName: user.fullName, 
@@ -99,6 +196,99 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role 
       } 
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const user = await User.findOne({ 
+      email, 
+      otp, 
+      otpExpiry: { $gt: new Date() } 
+    });
+
+    if (!user) return res.status(400).json({ message: 'Invalid or expired OTP' });
+
+    // Clear OTP after successful verification and mark as verified
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    user.isVerified = true;
+    await user.save();
+
+    res.json({ 
+      user: { 
+        fullName: user.fullName, 
+        email: user.email, 
+        mobile: user.mobile, 
+        address: user.address, 
+        role: user.role 
+      } 
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: 'Lensmen Rentals - Password Reset OTP',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #e5550f; text-align: center;">PASSWORD RESET</h2>
+          <p>You requested to reset your password. Your verification code is:</p>
+          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
+            ${otp}
+          </div>
+          <p style="color: #666; font-size: 12px; text-align: center;">This code will expire in 10 minutes.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ message: 'Password reset OTP sent', email: user.email, flow: 'forgot-password' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const user = await User.findOne({ 
+      email, 
+      otp, 
+      otpExpiry: { $gt: new Date() } 
+    });
+
+    if (!user) return res.status(400).json({ message: 'Invalid or expired OTP' });
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    user.password = hashedPassword;
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    res.json({ message: 'Password reset successful' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -122,7 +312,7 @@ app.get('/api/products', async (req, res) => {
 // POST New Product (Admin) with Multer Upload
 app.post('/api/products', upload.single('image'), async (req, res) => {
   try {
-    const { name, description, pricePerDay } = req.body;
+    const { name, description, pricePerDay, category } = req.body;
     const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
     const imageUrl = req.file ? `${baseUrl}/uploads/${req.file.filename}` : '';
     
@@ -130,13 +320,24 @@ app.post('/api/products', upload.single('image'), async (req, res) => {
       name,
       description,
       pricePerDay,
-      imageUrl
+      imageUrl,
+      category
     });
 
     const newProduct = await product.save();
     res.status(201).json(newProduct);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+// GET All Unique Categories
+app.get('/api/products/categories', async (req, res) => {
+  try {
+    const categories = await Product.distinct('category', { category: { $ne: null, $ne: '' } });
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -163,8 +364,8 @@ app.delete('/api/products/:id', async (req, res) => {
 // UPDATE Product (Admin) with optional image upload
 app.put('/api/products/:id', upload.single('image'), async (req, res) => {
   try {
-    const { name, description, pricePerDay, isAvailable } = req.body;
-    let updateData = { name, description, pricePerDay, isAvailable };
+    const { name, description, pricePerDay, isAvailable, category } = req.body;
+    let updateData = { name, description, pricePerDay, isAvailable, category };
 
     if (req.file) {
       const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -199,8 +400,18 @@ app.get('/api/admin/stats', async (req, res) => {
 // ADMIN: Get All Bookings
 app.get('/api/admin/bookings', async (req, res) => {
   try {
-    const bookings = await Booking.find().populate('productId').sort({ createdAt: -1 });
+    const bookings = await Booking.find().populate('productId').populate('items.productId').sort({ createdAt: -1 });
     res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ADMIN: Get All Users
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    res.json(users);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -209,18 +420,28 @@ app.get('/api/admin/bookings', async (req, res) => {
 // ADMIN: Update Booking Status
 app.put('/api/admin/bookings/:id/status', async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, returnCondition, returnNotes } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
     booking.status = status;
+    if (returnCondition) booking.returnCondition = returnCondition;
+    if (returnNotes !== undefined) booking.returnNotes = returnNotes;
     await booking.save();
 
-    // If returned, make product available
-    if (status === 'Returned') {
-      await Product.findByIdAndUpdate(booking.productId, { isAvailable: true });
-    } else {
-      await Product.findByIdAndUpdate(booking.productId, { isAvailable: false });
+    // If returned, make products available
+    const isAvailable = status === 'Returned';
+    
+    // Update main productId (legacy)
+    if (booking.productId) {
+      await Product.findByIdAndUpdate(booking.productId, { isAvailable });
+    }
+    
+    // Update all products in items
+    if (booking.items && booking.items.length > 0) {
+      for (const item of booking.items) {
+        await Product.findByIdAndUpdate(item.productId, { isAvailable });
+      }
     }
 
     res.json({ message: `Booking marked as ${status}`, status });
@@ -229,10 +450,27 @@ app.put('/api/admin/bookings/:id/status', async (req, res) => {
   }
 });
 
+// UPDATE User Profile
+app.put('/api/user/profile', async (req, res) => {
+  try {
+    const { email, fullName, mobile, address } = req.body;
+    const user = await User.findOneAndUpdate(
+      { email },
+      { fullName, mobile, address },
+      { new: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET User Bookings
 app.get('/api/user/bookings/:email', async (req, res) => {
   try {
-    const bookings = await Booking.find({ userEmail: req.params.email }).populate('productId').sort({ createdAt: -1 });
+    const bookings = await Booking.find({ userEmail: req.params.email }).populate('productId').populate('items.productId').sort({ createdAt: -1 });
     res.json(bookings);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -245,8 +483,16 @@ app.delete('/api/bookings/:id', async (req, res) => {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
-    // Make product available again
-    await Product.findByIdAndUpdate(booking.productId, { isAvailable: true });
+    // Make products available again
+    if (booking.productId) {
+      await Product.findByIdAndUpdate(booking.productId, { isAvailable: true });
+    }
+    
+    if (booking.items && booking.items.length > 0) {
+      for (const item of booking.items) {
+        await Product.findByIdAndUpdate(item.productId, { isAvailable: true });
+      }
+    }
 
     // Delete booking
     await Booking.findByIdAndDelete(req.params.id);
@@ -259,7 +505,7 @@ app.delete('/api/bookings/:id', async (req, res) => {
 
 // POST Create Booking
 app.post('/api/bookings', async (req, res) => {
-  const { productId, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate } = req.body;
+  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate } = req.body;
   
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -271,13 +517,44 @@ app.post('/api/bookings', async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(productId);
-    if (!product || !product.isAvailable) {
-      return res.status(400).json({ message: 'Product is not available' });
+    let bookingItems = [];
+    let totalPrice = 0;
+
+    if (products && Array.isArray(products)) {
+      // Handle multiple products
+      for (const p of products) {
+        const product = await Product.findById(p._id);
+        if (!product || !product.isAvailable) {
+          return res.status(400).json({ message: `Product ${product?.name || p._id} is not available` });
+        }
+        bookingItems.push({
+          productId: product._id,
+          name: product.name,
+          pricePerDay: product.pricePerDay,
+          imageUrl: product.imageUrl
+        });
+        totalPrice += diffDays * product.pricePerDay;
+      }
+    } else if (productId) {
+      // Handle legacy single product
+      const product = await Product.findById(productId);
+      if (!product || !product.isAvailable) {
+        return res.status(400).json({ message: 'Product is not available' });
+      }
+      bookingItems.push({
+        productId: product._id,
+        name: product.name,
+        pricePerDay: product.pricePerDay,
+        imageUrl: product.imageUrl
+      });
+      totalPrice = diffDays * product.pricePerDay;
+    } else {
+      return res.status(400).json({ message: 'No products selected' });
     }
 
     const booking = new Booking({
-      productId,
+      productId: bookingItems[0].productId, // First item for compatibility
+      items: bookingItems,
       userName,
       userEmail,
       userAddress,
@@ -286,14 +563,15 @@ app.post('/api/bookings', async (req, res) => {
       startDate,
       endDate,
       totalDays: diffDays,
-      totalPrice: diffDays * product.pricePerDay
+      totalPrice
     });
 
     const newBooking = await booking.save();
     
-    // Update product availability
-    product.isAvailable = false;
-    await product.save();
+    // Update product availability for all items
+    for (const item of bookingItems) {
+      await Product.findByIdAndUpdate(item.productId, { isAvailable: false });
+    }
 
     res.status(201).json(newBooking);
   } catch (err) {
