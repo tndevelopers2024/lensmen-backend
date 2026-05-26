@@ -70,7 +70,16 @@ const bookingSchema = new mongoose.Schema({
   endDate: Date,
   totalDays: Number,
   totalPrice: Number,
-  status: { type: String, enum: ['Active', 'Returned'], default: 'Active' },
+  status: { 
+    type: String, 
+    enum: [
+      'Request Submitted', 'KYC Pending', 'KYC Approved', 'Approved', 
+      'Ready for Pickup', 'Picked Up', 'During Rental', 'Return Pending', 
+      'Returned', 'Closed', 'Rejected', 'Active'
+    ], 
+    default: 'Request Submitted' 
+  },
+  rejectionReason: String,
   returnCondition: { type: String, enum: ['Good', 'Bad'], default: 'Good' },
   returnNotes: String,
   createdAt: { type: Date, default: Date.now }
@@ -87,6 +96,15 @@ const userSchema = new mongoose.Schema({
   otp: String,
   otpExpiry: Date,
   isVerified: { type: Boolean, default: false },
+  kycStatus: { type: String, enum: ['Not Uploaded', 'Pending', 'Approved', 'Rejected'], default: 'Not Uploaded' },
+  kycDocuments: {
+    aadhaarFront: String,
+    aadhaarBack: String,
+    panFront: String,
+    panBack: String
+  },
+  kycRejectionReason: String,
+  customerClass: { type: String, enum: ['New', 'Regular', 'Frequent', 'VIP', 'Celebrity', 'Corporate'], default: 'New' },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -95,6 +113,18 @@ const Booking = mongoose.model('Booking', bookingSchema);
 const User = mongoose.model('User', userSchema);
 
 // Auth Routes
+const formatUserResponse = (user) => ({
+  fullName: user.fullName,
+  email: user.email,
+  mobile: user.mobile,
+  address: user.address,
+  role: user.role,
+  kycStatus: user.kycStatus,
+  kycDocuments: user.kycDocuments,
+  kycRejectionReason: user.kycRejectionReason,
+  customerClass: user.customerClass
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { fullName, email, password, mobile, address, accountType } = req.body;
@@ -109,13 +139,7 @@ app.post('/api/auth/register', async (req, res) => {
       if (isMatch) {
         return res.json({ 
           message: 'Existing user logged in.',
-          user: { 
-            fullName: user.fullName, 
-            email: user.email, 
-            mobile: user.mobile, 
-            address: user.address, 
-            role: user.role 
-          } 
+          user: formatUserResponse(user)
         });
       }
       return res.status(400).json({ message: 'User already exists' });
@@ -134,37 +158,9 @@ app.post('/api/auth/register', async (req, res) => {
 
     await user.save();
 
-    // Skip email sending for now as per user request
-    /*
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: 'Lensmen Rentals - Registration Verification OTP',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-          <h2 style="color: #0870b8; text-align: center;">VERIFICATION CODE</h2>
-          <p>Hello <strong>${user.fullName}</strong>,</p>
-          <p>Welcome to Lensmen Rentals! Your registration verification code is:</p>
-          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p style="color: #666; font-size: 12px; text-align: center;">This code will expire in 10 minutes.</p>
-        </div>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
-    */
-
     res.status(201).json({ 
       message: 'Registration successful',
-      user: { 
-        fullName: user.fullName, 
-        email: user.email, 
-        mobile: user.mobile, 
-        address: user.address, 
-        role: user.role 
-      } 
+      user: formatUserResponse(user)
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -188,13 +184,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
     res.json({ 
-      user: { 
-        fullName: user.fullName, 
-        email: user.email, 
-        mobile: user.mobile, 
-        address: user.address, 
-        role: user.role 
-      } 
+      user: formatUserResponse(user)
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -219,13 +209,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     await user.save();
 
     res.json({ 
-      user: { 
-        fullName: user.fullName, 
-        email: user.email, 
-        mobile: user.mobile, 
-        address: user.address, 
-        role: user.role 
-      } 
+      user: formatUserResponse(user)
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -400,8 +384,15 @@ app.get('/api/admin/stats', async (req, res) => {
 // ADMIN: Get All Bookings
 app.get('/api/admin/bookings', async (req, res) => {
   try {
-    const bookings = await Booking.find().populate('productId').populate('items.productId').sort({ createdAt: -1 });
-    res.json(bookings);
+    const bookings = await Booking.find().populate('productId').populate('items.productId').sort({ createdAt: -1 }).lean();
+    const bookingsWithUserKyc = await Promise.all(bookings.map(async (booking) => {
+      const user = await User.findOne({ email: booking.userEmail }).select('-password').lean();
+      return {
+        ...booking,
+        userKyc: user || null
+      };
+    }));
+    res.json(bookingsWithUserKyc);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -420,17 +411,19 @@ app.get('/api/admin/users', async (req, res) => {
 // ADMIN: Update Booking Status
 app.put('/api/admin/bookings/:id/status', async (req, res) => {
   try {
-    const { status, returnCondition, returnNotes } = req.body;
+    const { status, returnCondition, returnNotes, rejectionReason } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
     booking.status = status;
     if (returnCondition) booking.returnCondition = returnCondition;
     if (returnNotes !== undefined) booking.returnNotes = returnNotes;
+    if (rejectionReason !== undefined) booking.rejectionReason = rejectionReason;
     await booking.save();
 
-    // If returned, make products available
-    const isAvailable = status === 'Returned';
+    // If status is Returned, Closed, or Rejected, release products back into inventory
+    const isReleased = ['Returned', 'Closed', 'Rejected'].includes(status);
+    const isAvailable = isReleased;
     
     // Update main productId (legacy)
     if (booking.productId) {
@@ -450,6 +443,93 @@ app.put('/api/admin/bookings/:id/status', async (req, res) => {
   }
 });
 
+// POST User KYC Upload
+app.post('/api/user/kyc', upload.fields([
+  { name: 'aadhaarFront', maxCount: 1 },
+  { name: 'aadhaarBack', maxCount: 1 },
+  { name: 'panFront', maxCount: 1 },
+  { name: 'panBack', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+    const files = req.files || {};
+    const kycDocuments = { ...user.kycDocuments };
+
+    if (files.aadhaarFront && files.aadhaarFront[0]) {
+      kycDocuments.aadhaarFront = `${baseUrl}/uploads/${files.aadhaarFront[0].filename}`;
+    }
+    if (files.aadhaarBack && files.aadhaarBack[0]) {
+      kycDocuments.aadhaarBack = `${baseUrl}/uploads/${files.aadhaarBack[0].filename}`;
+    }
+    if (files.panFront && files.panFront[0]) {
+      kycDocuments.panFront = `${baseUrl}/uploads/${files.panFront[0].filename}`;
+    }
+    if (files.panBack && files.panBack[0]) {
+      kycDocuments.panBack = `${baseUrl}/uploads/${files.panBack[0].filename}`;
+    }
+
+    user.kycDocuments = kycDocuments;
+    user.kycStatus = 'Pending';
+    user.kycRejectionReason = undefined; // Clear previous rejection reason
+    await user.save();
+
+    res.json(formatUserResponse(user));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ADMIN: Verify User KYC
+app.put('/api/admin/users/:id/kyc', async (req, res) => {
+  try {
+    const { kycStatus, kycRejectionReason } = req.body;
+    if (!['Approved', 'Rejected'].includes(kycStatus)) {
+      return res.status(400).json({ message: 'Invalid KYC status' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.kycStatus = kycStatus;
+    if (kycStatus === 'Rejected') {
+      user.kycRejectionReason = kycRejectionReason || 'Documents rejected by admin';
+    } else {
+      user.kycRejectionReason = undefined;
+    }
+
+    await user.save();
+    res.json({ message: `KYC status updated to ${kycStatus}`, user: formatUserResponse(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ADMIN: Update User Classification
+app.put('/api/admin/users/:id/class', async (req, res) => {
+  try {
+    const { customerClass } = req.body;
+    if (!['New', 'Regular', 'Frequent', 'VIP', 'Celebrity', 'Corporate'].includes(customerClass)) {
+      return res.status(400).json({ message: 'Invalid customer class' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.customerClass = customerClass;
+    await user.save();
+
+    res.json({ message: `Customer class updated to ${customerClass}`, user: formatUserResponse(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // UPDATE User Profile
 app.put('/api/user/profile', async (req, res) => {
   try {
@@ -458,10 +538,10 @@ app.put('/api/user/profile', async (req, res) => {
       { email },
       { fullName, mobile, address },
       { new: true }
-    ).select('-password');
+    );
 
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
+    res.json(formatUserResponse(user));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -552,6 +632,16 @@ app.post('/api/bookings', async (req, res) => {
       return res.status(400).json({ message: 'No products selected' });
     }
 
+    let initialStatus = 'Request Submitted';
+    const userDoc = await User.findOne({ email: userEmail });
+    if (userDoc) {
+      if (userDoc.kycStatus === 'Approved') {
+        initialStatus = 'KYC Approved';
+      } else {
+        initialStatus = 'KYC Pending';
+      }
+    }
+
     const booking = new Booking({
       productId: bookingItems[0].productId, // First item for compatibility
       items: bookingItems,
@@ -563,7 +653,8 @@ app.post('/api/bookings', async (req, res) => {
       startDate,
       endDate,
       totalDays: diffDays,
-      totalPrice
+      totalPrice,
+      status: initialStatus
     });
 
     const newBooking = await booking.save();
