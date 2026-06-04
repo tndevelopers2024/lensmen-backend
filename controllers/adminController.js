@@ -1,0 +1,206 @@
+const Booking = require('../models/Booking');
+const Product = require('../models/Product');
+const { User, formatUserResponse } = require('../models/User');
+const socket  = require('../config/socket');
+
+exports.getStats = async (req, res) => {
+  try {
+    const productCount = await Product.countDocuments();
+    const bookingCount = await Booking.countDocuments();
+    const bookings = await Booking.find();
+    const totalRevenue = bookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+    res.json({ productCount, bookingCount, totalRevenue });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getAllBookings = async (req, res) => {
+  try {
+    const bookings = await Booking.find()
+      .populate('productId')
+      .populate('items.productId')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const bookingsWithUserKyc = await Promise.all(
+      bookings.map(async (booking) => {
+        const user = await User.findOne({ email: booking.userEmail }).select('-password').lean();
+        return { ...booking, userKyc: user || null };
+      })
+    );
+
+    res.json(bookingsWithUserKyc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.updateBookingStatus = async (req, res) => {
+  try {
+    const { status, returnCondition, returnNotes, rejectionReason } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const RELEASED = ['Returned', 'Closed', 'Rejected'];
+    const wasReleased = RELEASED.includes(booking.status);
+    const willBeReleased = RELEASED.includes(status);
+
+    booking.status = status;
+    if (returnCondition) booking.returnCondition = returnCondition;
+    if (returnNotes !== undefined) booking.returnNotes = returnNotes;
+    if (rejectionReason !== undefined) booking.rejectionReason = rejectionReason;
+    await booking.save();
+
+    // Restore stock when transitioning active → released
+    if (!wasReleased && willBeReleased) {
+      const itemsToRestore = booking.items?.length
+        ? booking.items
+        : booking.productId ? [{ productId: booking.productId, quantity: booking.quantity || 1 }] : [];
+
+      for (const item of itemsToRestore) {
+        const prod = await Product.findById(item.productId);
+        if (prod) {
+          const qty = item.quantity || 1;
+          prod.availableQuantity = Math.min(prod.totalQuantity ?? 1, (prod.availableQuantity ?? 0) + qty);
+          prod.isAvailable = prod.availableQuantity > 0;
+          await prod.save();
+        }
+      }
+    }
+
+    socket.emit('booking:updated', { userEmail: booking.userEmail, status })
+    socket.emit('product:updated')
+
+    // Notify the customer about their order status change
+    const itemLabel = booking.items?.[0]?.name || 'your order'
+    const USER_NOTIFICATIONS = {
+      'KYC Approved':      { title: 'KYC Verified ✓',          message: `Your identity documents have been verified.` },
+      'Approved':          { title: 'Rental Approved! 🎉',      message: `Your rental of ${itemLabel} has been approved.` },
+      'Ready for Pickup':  { title: 'Ready for Pickup 📦',      message: `${itemLabel} is packed and ready to collect.` },
+      'During Rental':     { title: 'Rental Started',           message: `Your rental period for ${itemLabel} has begun.` },
+      'Return Pending':    { title: 'Return Due Soon ⏰',        message: `Please return ${itemLabel} by the scheduled time.` },
+      'Returned':          { title: 'Return Confirmed ✓',       message: `We received ${itemLabel}. Thank you!` },
+      'Closed':            { title: 'Order Closed',             message: `Your rental order has been closed. See you again!` },
+      'Rejected':          { title: 'Rental Request Rejected',  message: rejectionReason ? `Reason: ${rejectionReason}` : `Your request for ${itemLabel} was not approved.` },
+    }
+    if (USER_NOTIFICATIONS[status]) {
+      socket.notify({
+        recipient: booking.userEmail,
+        type: 'status_update',
+        title: USER_NOTIFICATIONS[status].title,
+        message: USER_NOTIFICATIONS[status].message,
+        orderId: booking._id,
+      })
+    }
+
+    res.json({ message: `Booking marked as ${status}`, status });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.verifyKyc = async (req, res) => {
+  try {
+    const { kycStatus, kycRejectionReason } = req.body;
+    if (!['Approved', 'Rejected'].includes(kycStatus)) {
+      return res.status(400).json({ message: 'Invalid KYC status' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.kycStatus = kycStatus;
+    user.kycRejectionReason = kycStatus === 'Rejected'
+      ? (kycRejectionReason || 'Documents rejected by admin')
+      : undefined;
+    await user.save();
+
+    res.json({ message: `KYC status updated to ${kycStatus}`, user: formatUserResponse(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.syncStock = async (req, res) => {
+  try {
+    const ACTIVE = ['Request Submitted', 'KYC Pending', 'KYC Approved', 'Approved',
+      'Ready for Pickup', 'Picked Up', 'During Rental', 'Return Pending', 'Active']
+
+    const [products, activeBookings] = await Promise.all([
+      Product.find(),
+      Booking.find({ status: { $in: ACTIVE } }),
+    ])
+
+    // Count booked quantity per product across all active bookings
+    const bookedMap = {}
+    for (const booking of activeBookings) {
+      const items = booking.items?.length
+        ? booking.items
+        : booking.productId ? [{ productId: booking.productId, quantity: booking.quantity || 1 }] : []
+      for (const item of items) {
+        const pid = item.productId.toString()
+        bookedMap[pid] = (bookedMap[pid] || 0) + (item.quantity || 1)
+      }
+    }
+
+    const updates = []
+    for (const prod of products) {
+      const booked = bookedMap[prod._id.toString()] || 0
+      const total  = prod.totalQuantity ?? 1
+      const avail  = Math.max(0, total - booked)
+      if (prod.availableQuantity !== avail || prod.isAvailable !== (avail > 0)) {
+        prod.availableQuantity = avail
+        prod.isAvailable       = avail > 0
+        updates.push(prod.save())
+      }
+    }
+
+    await Promise.all(updates)
+    socket.emit('product:updated')
+    res.json({ message: `Stock synced — ${updates.length} product(s) updated` })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+}
+
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role === 'admin') return res.status(403).json({ message: 'Cannot delete admin accounts' });
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.updateUserClass = async (req, res) => {
+  try {
+    const { customerClass } = req.body;
+    const validClasses = ['New', 'Regular', 'Frequent', 'VIP', 'Celebrity', 'Corporate'];
+    if (!validClasses.includes(customerClass)) {
+      return res.status(400).json({ message: 'Invalid customer class' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.customerClass = customerClass;
+    await user.save();
+
+    res.json({ message: `Customer class updated to ${customerClass}`, user: formatUserResponse(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

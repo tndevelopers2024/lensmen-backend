@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/userController');
+const upload = require('../middleware/upload');
+
+router.put('/profile', userController.updateProfile);
+router.post('/kyc', upload.fields([
+  { name: 'aadhaarFront', maxCount: 1 },
+  { name: 'aadhaarBack', maxCount: 1 },
+  { name: 'panFront', maxCount: 1 },
+  { name: 'panBack', maxCount: 1 },
+]), userController.uploadKyc);
+
+module.exports = router;
