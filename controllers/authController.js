@@ -64,7 +64,12 @@ exports.login = async (req, res) => {
     if (!isMatch && password === user.password) isMatch = true;
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
-    // Every login requires email OTP verification
+    // Admin: skip OTP, return user directly
+    if (user.role === 'admin') {
+      return res.json({ user: formatUserResponse(user) });
+    }
+
+    // Regular users: require email OTP
     await sendOtp(user, 'login');
     res.json({ otpRequired: true, email: user.email, message: 'Verification code sent to your email' });
   } catch (err) {
