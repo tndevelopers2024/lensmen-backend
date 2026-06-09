@@ -1,10 +1,19 @@
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
 const { User } = require('../models/User');
-const socket  = require('../config/socket');
+const socket         = require('../config/socket');
+const transporter    = require('../config/mailer');
+const emailTemplates = require('../utils/emailTemplates');
+
+const sendEmail = async (to, tpl) => {
+  if (!tpl || !to) return
+  try {
+    await transporter.sendMail({ from: `Lensmen Rentals <${process.env.EMAIL_USER}>`, to, subject: tpl.subject, html: tpl.html })
+  } catch (e) { console.error('Email send failed:', e.message) }
+}
 
 exports.createBooking = async (req, res) => {
-  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate, quantity, notes } = req.body;
+  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate, quantity, notes, offerCode } = req.body;
   const qty = Math.max(1, parseInt(quantity) || 1);
 
   const start = new Date(startDate);
@@ -43,6 +52,11 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ message: 'No products selected' });
     }
 
+    // Apply offer discount server-side (re-validate — don't trust client amount)
+    const { applyOfferToBooking } = require('./offerController');
+    const { discount: discountAmount, code: appliedCode } = await applyOfferToBooking(offerCode, totalPrice);
+    const finalPrice = Math.max(0, totalPrice - discountAmount);
+
     let initialStatus = 'Request Submitted';
     const userDoc = await User.findOne({ email: userEmail });
     if (userDoc) {
@@ -56,7 +70,10 @@ exports.createBooking = async (req, res) => {
       userName, userEmail, userAddress, userMobile, accountType,
       startDate, endDate,
       totalDays: diffDays,
-      totalPrice,
+      originalPrice: totalPrice,
+      discountAmount,
+      offerCode: appliedCode,
+      totalPrice: finalPrice,
       status: initialStatus,
       notes,
     });
@@ -76,7 +93,6 @@ exports.createBooking = async (req, res) => {
     socket.emit('booking:new', { userEmail: newBooking.userEmail })
 
     const itemNames = bookingItems.map(i => i.name).join(', ')
-    // Notify admin of new booking
     socket.notify({
       recipient: 'admin',
       type: 'booking_new',
@@ -84,6 +100,9 @@ exports.createBooking = async (req, res) => {
       message: `${userName} requested: ${itemNames}`,
       orderId: newBooking._id,
     })
+
+    // Confirmation email to customer
+    await sendEmail(userEmail, emailTemplates.bookingSubmitted(newBooking))
 
     res.status(201).json(newBooking);
   } catch (err) {
@@ -140,6 +159,8 @@ exports.cancelBooking = async (req, res) => {
     const userEmail  = booking.userEmail
     const cancelName = booking.userName
     const cancelItem = booking.items?.[0]?.name || 'order'
+    // Capture full booking data before deletion for email
+    const cancelledBookingData = booking.toObject()
     await Booking.findByIdAndDelete(req.params.id);
     socket.emit('booking:cancelled', { userEmail })
     socket.notify({
@@ -148,6 +169,7 @@ exports.cancelBooking = async (req, res) => {
       title: 'Order Cancelled',
       message: `${cancelName} cancelled their rental of ${cancelItem}`,
     })
+    await sendEmail(userEmail, emailTemplates.bookingCancelled(cancelledBookingData))
     res.json({ message: 'Booking cancelled successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });

@@ -37,8 +37,12 @@ const bookingSchema = new mongoose.Schema({
     ],
     default: 'Request Submitted',
   },
+  offerCode:       { type: String, default: null },
+  discountAmount:  { type: Number, default: 0 },
+  originalPrice:   { type: Number, default: 0 },
   notes:           String,
   rejectionReason: String,
+  pickupLocation:  { type: String, default: '' },
   returnCondition: { type: String, enum: ['Good', 'Bad'], default: 'Good' },
   returnNotes:     String,
   // ── Payment fields ────────────────────────────────────────────────

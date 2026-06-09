@@ -1,4 +1,17 @@
 const { User, formatUserResponse } = require('../models/User');
+const socket = require('../config/socket');
+
+exports.getMe = async (req, res) => {
+  try {
+    const { email } = req.query
+    if (!email) return res.status(400).json({ message: 'Email required' })
+    const user = await User.findOne({ email })
+    if (!user) return res.status(404).json({ message: 'User not found' })
+    res.json(formatUserResponse(user))
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+}
 
 exports.updateProfile = async (req, res) => {
   try {
@@ -34,6 +47,26 @@ exports.uploadKyc = async (req, res) => {
     await user.save();
 
     res.json(formatUserResponse(user));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.kycReminder = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email required' });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    socket.notify({
+      recipient: 'admin',
+      type: 'kyc_reminder',
+      title: 'KYC Review Requested',
+      message: `${user.fullName} (${email}) is requesting KYC verification review`,
+    });
+
+    res.json({ message: 'Reminder sent to admin' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

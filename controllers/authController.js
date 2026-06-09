@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { User, formatUserResponse } = require('../models/User');
 const transporter = require('../config/mailer');
+const emailTemplates = require('../utils/emailTemplates');
 
 // ── Generate + email a 6-digit OTP, store on the user ──────────────────
 const sendOtp = async (user, purpose = 'verification') => {
@@ -9,21 +10,12 @@ const sendOtp = async (user, purpose = 'verification') => {
   user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 min
   await user.save();
 
-  const heading = purpose === 'login' ? 'SIGN-IN VERIFICATION' : 'VERIFY YOUR ACCOUNT';
+  const { subject, html } = emailTemplates.otp(user.fullName || 'there', otp, purpose);
   await transporter.sendMail({
     from: `Lensmen Rentals <${process.env.EMAIL_USER}>`,
     to: user.email,
-    subject: `Lensmen Rentals - ${purpose === 'login' ? 'Login' : 'Verification'} Code`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-        <h2 style="color: #e5550f; text-align: center;">${heading}</h2>
-        <p>Hello ${user.fullName || 'there'}, use the code below to continue:</p>
-        <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
-          ${otp}
-        </div>
-        <p style="color: #666; font-size: 12px; text-align: center;">This code will expire in 10 minutes. If you didn't request it, please ignore this email.</p>
-      </div>
-    `,
+    subject,
+    html,
   });
 };
 
@@ -105,20 +97,12 @@ exports.forgotPassword = async (req, res) => {
     user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
+    const { subject: resetSubject, html: resetHtml } = emailTemplates.passwordReset(user.fullName || 'there', otp);
     await transporter.sendMail({
       from: `Lensmen Rentals <${process.env.EMAIL_USER}>`,
       to: user.email,
-      subject: 'Lensmen Rentals - Password Reset OTP',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-          <h2 style="color: #e5550f; text-align: center;">PASSWORD RESET</h2>
-          <p>You requested to reset your password. Your verification code is:</p>
-          <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p style="color: #666; font-size: 12px; text-align: center;">This code will expire in 10 minutes.</p>
-        </div>
-      `,
+      subject: resetSubject,
+      html: resetHtml,
     });
 
     res.json({ message: 'Password reset OTP sent', email: user.email, flow: 'forgot-password' });

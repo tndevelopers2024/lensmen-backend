@@ -22,10 +22,9 @@ exports.getCategories = async (req, res) => {
 exports.createProduct = async (req, res) => {
   try {
     const { name, description, pricePerDay, category, sku, totalQuantity, availableQuantity, condition } = req.body;
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5014}`;
     const imageFile = req.files?.image?.[0];
-    const imageUrl  = imageFile ? `${baseUrl}/uploads/${imageFile.filename}` : '';
-    const galleryImages = (req.files?.gallery || []).map(f => `${baseUrl}/uploads/${f.filename}`);
+    const imageUrl  = imageFile ? `/uploads/${imageFile.filename}` : '';
+    const galleryImages = (req.files?.gallery || []).map(f => `/uploads/${f.filename}`);
 
     const total     = parseInt(totalQuantity)     || 1;
     const available = parseInt(availableQuantity) ?? total;
@@ -84,13 +83,12 @@ exports.updateProduct = async (req, res) => {
       updateData.isAvailable = isAvailable === 'true' || isAvailable === true;
     }
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5014}`;
     if (req.files?.image?.[0]) {
-      updateData.imageUrl = `${baseUrl}/uploads/${req.files.image[0].filename}`;
+      updateData.imageUrl = `/uploads/${req.files.image[0].filename}`;
     }
     // existingGallery = JSON array of kept URLs sent from the client
     const keptUrls = req.body.existingGallery ? JSON.parse(req.body.existingGallery) : null;
-    const newGallery = (req.files?.gallery || []).map(f => `${baseUrl}/uploads/${f.filename}`);
+    const newGallery = (req.files?.gallery || []).map(f => `/uploads/${f.filename}`);
     if (keptUrls !== null || newGallery.length) {
       const base = keptUrls !== null ? keptUrls : (await Product.findById(req.params.id).select('galleryImages'))?.galleryImages || [];
       updateData.galleryImages = [...base, ...newGallery].slice(0, 5);

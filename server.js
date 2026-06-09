@@ -16,6 +16,7 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const quoteRoutes         = require('./routes/quoteRoutes');
 const notificationRoutes  = require('./routes/notificationRoutes');
+const offerRoutes         = require('./routes/offerRoutes');
 
 const app    = express();
 const server = http.createServer(app);
@@ -42,6 +43,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/quotes',         quoteRoutes);
 app.use('/api/notifications',  notificationRoutes);
+app.use('/api/offers',         offerRoutes);
 
 // Start
 connectDB().then(() => {

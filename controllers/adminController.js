@@ -1,7 +1,16 @@
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
 const { User, formatUserResponse } = require('../models/User');
-const socket  = require('../config/socket');
+const socket          = require('../config/socket');
+const transporter     = require('../config/mailer');
+const emailTemplates  = require('../utils/emailTemplates');
+
+const sendEmail = async (to, tpl) => {
+  if (!tpl || !to) return
+  try {
+    await transporter.sendMail({ from: `Lensmen Rentals <${process.env.EMAIL_USER}>`, to, subject: tpl.subject, html: tpl.html })
+  } catch (e) { console.error('Email send failed:', e.message) }
+}
 
 exports.getStats = async (req, res) => {
   try {
@@ -47,7 +56,7 @@ exports.getAllUsers = async (req, res) => {
 
 exports.updateBookingStatus = async (req, res) => {
   try {
-    const { status, returnCondition, returnNotes, rejectionReason } = req.body;
+    const { status, returnCondition, returnNotes, rejectionReason, pickupLocation } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -59,6 +68,7 @@ exports.updateBookingStatus = async (req, res) => {
     if (returnCondition) booking.returnCondition = returnCondition;
     if (returnNotes !== undefined) booking.returnNotes = returnNotes;
     if (rejectionReason !== undefined) booking.rejectionReason = rejectionReason;
+    if (pickupLocation !== undefined) booking.pickupLocation = pickupLocation;
     await booking.save();
 
     // Restore stock when transitioning active → released
@@ -85,8 +95,8 @@ exports.updateBookingStatus = async (req, res) => {
     const itemLabel = booking.items?.[0]?.name || 'your order'
     const USER_NOTIFICATIONS = {
       'KYC Approved':      { title: 'KYC Verified ✓',          message: `Your identity documents have been verified.` },
-      'Approved':          { title: 'Rental Approved! 🎉',      message: `Your rental of ${itemLabel} has been approved.` },
-      'Ready for Pickup':  { title: 'Ready for Pickup 📦',      message: `${itemLabel} is packed and ready to collect.` },
+      'Approved':          { title: 'Rental Approved! 🎉',      message: `Your rental of ${itemLabel} has been approved.${booking.pickupLocation ? ` Pickup location: ${booking.pickupLocation}` : ''}` },
+      'Ready for Pickup':  { title: 'Ready for Pickup 📦',      message: `${itemLabel} is packed and ready. Collect from: ${booking.pickupLocation || 'our store'}.` },
       'During Rental':     { title: 'Rental Started',           message: `Your rental period for ${itemLabel} has begun.` },
       'Return Pending':    { title: 'Return Due Soon ⏰',        message: `Please return ${itemLabel} by the scheduled time.` },
       'Returned':          { title: 'Return Confirmed ✓',       message: `We received ${itemLabel}. Thank you!` },
@@ -101,6 +111,9 @@ exports.updateBookingStatus = async (req, res) => {
         message: USER_NOTIFICATIONS[status].message,
         orderId: booking._id,
       })
+      // Send email notification
+      const emailTpl = emailTemplates.statusUpdate(booking, status, { pickupLocation, rejectionReason })
+      await sendEmail(booking.userEmail, emailTpl)
     }
 
     res.json({ message: `Booking marked as ${status}`, status });
@@ -124,6 +137,12 @@ exports.verifyKyc = async (req, res) => {
       ? (kycRejectionReason || 'Documents rejected by admin')
       : undefined;
     await user.save();
+
+    // Email notification
+    const kycTpl = kycStatus === 'Approved'
+      ? emailTemplates.kycApproved(user.fullName || user.email)
+      : emailTemplates.kycRejected(user.fullName || user.email, kycRejectionReason)
+    await sendEmail(user.email, kycTpl)
 
     res.json({ message: `KYC status updated to ${kycStatus}`, user: formatUserResponse(user) });
   } catch (err) {
