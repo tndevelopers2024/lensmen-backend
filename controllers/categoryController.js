@@ -1,10 +1,10 @@
 const Category = require('../models/Category');
 const Product  = require('../models/Product');
 
-// GET /api/categories  — list with product counts
+// GET /api/categories  — list with product counts, sorted by position
 exports.getAll = async (req, res) => {
   try {
-    const categories = await Category.find().sort({ name: 1 }).lean();
+    const categories = await Category.find().sort({ position: 1, name: 1 }).lean();
     const withCounts = await Promise.all(
       categories.map(async (c) => ({
         ...c,
@@ -26,11 +26,28 @@ exports.create = async (req, res) => {
     const exists = await Category.findOne({ name: name.trim() });
     if (exists) return res.status(400).json({ message: 'Category already exists' });
 
-    const category = new Category({ name: name.trim(), description: description || '' });
+    const last = await Category.findOne().sort({ position: -1 }).lean();
+    const position = last ? (last.position || 0) + 1 : 0;
+
+    const category = new Category({ name: name.trim(), description: description || '', position });
     await category.save();
     res.status(201).json(category);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+};
+
+// PUT /api/categories/reorder — accepts [{ id, position }]
+exports.reorder = async (req, res) => {
+  try {
+    const items = req.body; // [{ id, position }]
+    if (!Array.isArray(items)) return res.status(400).json({ message: 'Expected array' });
+    await Promise.all(items.map(({ id, position }) =>
+      Category.findByIdAndUpdate(id, { position })
+    ));
+    res.json({ message: 'Reordered' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 

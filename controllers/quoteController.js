@@ -24,28 +24,30 @@ exports.getOne = async (req, res) => {
   }
 };
 
-const calcTotals = (items, totalDays, discountAmount) => {
-  const subtotal   = (items || []).reduce((s, item) => s + (item.pricePerDay || 0) * (item.quantity || 1) * totalDays, 0);
-  const discount   = Number(discountAmount) || 0;
-  const totalPrice = Math.max(0, subtotal - discount);
-  return { subtotal, discountAmount: discount, totalPrice };
+const calcTotals = (items, totalDays, discountAmount, gstEnabled, gstPercent = 18) => {
+  const subtotal      = (items || []).reduce((s, item) => s + (item.pricePerDay || 0) * (item.quantity || 1) * totalDays, 0);
+  const discount      = Number(discountAmount) || 0;
+  const afterDiscount = Math.max(0, subtotal - discount);
+  const gstAmount     = gstEnabled ? Math.round(afterDiscount * gstPercent / 100) : 0;
+  const totalPrice    = afterDiscount + gstAmount;
+  return { subtotal, discountAmount: discount, gstEnabled: !!gstEnabled, gstPercent, gstAmount, totalPrice };
 };
 
 // POST /api/quotes
 exports.create = async (req, res) => {
   try {
-    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount } = req.body;
+    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy } = req.body;
 
     const start     = new Date(startDate);
     const end       = new Date(endDate);
-    const totalDays = Math.max(1, Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)));
-    const totals    = calcTotals(items, totalDays, discountAmount);
+    const totalDays = Math.max(1, Math.round((new Date(end.getFullYear(), end.getMonth(), end.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000) + 1);
+    const totals    = calcTotals(items, totalDays, discountAmount, gstEnabled, gstPercent);
 
     const quote = new Quote({
       customerName, customerMobile, customerEmail,
       items: items || [],
       startDate, endDate, totalDays,
-      notes,
+      notes, raisedBy,
       ...totals,
     });
 
@@ -59,16 +61,16 @@ exports.create = async (req, res) => {
 // PUT /api/quotes/:id
 exports.update = async (req, res) => {
   try {
-    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, status } = req.body;
+    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy, status } = req.body;
 
     const start     = new Date(startDate);
     const end       = new Date(endDate);
-    const totalDays = Math.max(1, Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)));
-    const totals    = calcTotals(items, totalDays, discountAmount);
+    const totalDays = Math.max(1, Math.round((new Date(end.getFullYear(), end.getMonth(), end.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000) + 1);
+    const totals    = calcTotals(items, totalDays, discountAmount, gstEnabled, gstPercent);
 
     const quote = await Quote.findByIdAndUpdate(
       req.params.id,
-      { customerName, customerMobile, customerEmail, items: items || [], startDate, endDate, totalDays, notes, status, ...totals },
+      { customerName, customerMobile, customerEmail, items: items || [], startDate, endDate, totalDays, notes, raisedBy, status, ...totals },
       { new: true }
     );
     if (!quote) return res.status(404).json({ message: 'Quote not found' });

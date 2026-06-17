@@ -1,10 +1,13 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
+  userId: { type: String, unique: true, sparse: true },
   fullName: String,
   email: { type: String, unique: true },
   password: { type: String, required: true },
   mobile: String,
+  secondMobile: String,
+  companyName: String,
   address: String,
   accountType: { type: String, enum: ['Private', 'Company'], default: 'Private' },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
@@ -23,7 +26,14 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+userSchema.pre('save', async function () {
+  if (this.userId) return;
+  const count = await mongoose.model('User').countDocuments();
+  this.userId = `LR-USR-${String(count + 1).padStart(3, '0')}`;
+});
+
 const formatUserResponse = (user) => ({
+  userId: user.userId,
   fullName: user.fullName,
   email: user.email,
   mobile: user.mobile,

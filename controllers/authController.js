@@ -21,7 +21,7 @@ const sendOtp = async (user, purpose = 'verification') => {
 
 exports.register = async (req, res) => {
   try {
-    const { fullName, email, password, mobile, address, accountType } = req.body;
+    const { fullName, email, password, mobile, secondMobile, companyName, address, accountType } = req.body;
 
     let user = await User.findOne({ email });
     if (user) {
@@ -37,7 +37,7 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    user = new User({ fullName, email, password: hashedPassword, mobile, address, accountType, isVerified: false });
+    user = new User({ fullName, email, password: hashedPassword, mobile, secondMobile, companyName, address, accountType, isVerified: false });
     await sendOtp(user, 'verification'); // also saves the user
 
     res.status(201).json({ otpRequired: true, email: user.email, message: 'Verification code sent to your email' });

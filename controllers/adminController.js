@@ -54,9 +54,19 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
+exports.lookupUserById = async (req, res) => {
+  try {
+    const user = await User.findOne({ userId: req.params.userId }).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.updateBookingStatus = async (req, res) => {
   try {
-    const { status, returnCondition, returnNotes, rejectionReason, pickupLocation } = req.body;
+    const { status, returnCondition, returnNotes, rejectionReason, reopenNotes, pickupLocation } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -68,6 +78,7 @@ exports.updateBookingStatus = async (req, res) => {
     if (returnCondition) booking.returnCondition = returnCondition;
     if (returnNotes !== undefined) booking.returnNotes = returnNotes;
     if (rejectionReason !== undefined) booking.rejectionReason = rejectionReason;
+    if (reopenNotes !== undefined) booking.reopenNotes = reopenNotes;
     if (pickupLocation !== undefined) booking.pickupLocation = pickupLocation;
     await booking.save();
 
@@ -219,6 +230,17 @@ exports.updateUserClass = async (req, res) => {
     await user.save();
 
     res.json({ message: `Customer class updated to ${customerClass}`, user: formatUserResponse(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.deleteBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    await Booking.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Order deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

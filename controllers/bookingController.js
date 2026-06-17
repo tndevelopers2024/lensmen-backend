@@ -18,7 +18,9 @@ exports.createBooking = async (req, res) => {
 
   const start = new Date(startDate);
   const end = new Date(endDate);
-  const diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) || 1;
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay   = new Date(end.getFullYear(),   end.getMonth(),   end.getDate());
+  const diffDays = Math.max(1, Math.round((endDay - startDay) / 86400000) + 1);
 
   if (diffDays > 10) {
     return res.status(400).json({ message: 'Booking cannot exceed 10 days' });

@@ -19,7 +19,11 @@ const quoteSchema = new mongoose.Schema({
   totalDays:          { type: Number, default: 1 },
   subtotal:           { type: Number, default: 0 },
   discountAmount:     { type: Number, default: 0 },
+  gstEnabled:         { type: Boolean, default: false },
+  gstPercent:         { type: Number, default: 18 },
+  gstAmount:          { type: Number, default: 0 },
   totalPrice:         { type: Number, default: 0 },
+  raisedBy:           String,
   notes:              String,
   status: {
     type: String,

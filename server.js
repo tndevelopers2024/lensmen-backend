@@ -45,8 +45,36 @@ app.use('/api/quotes',         quoteRoutes);
 app.use('/api/notifications',  notificationRoutes);
 app.use('/api/offers',         offerRoutes);
 
+// Backfill userId for existing users who don't have one
+async function backfillUserIds() {
+  const { User } = require('./models/User');
+  const users = await User.find({ userId: { $exists: false } }).sort({ createdAt: 1 });
+  if (users.length === 0) return;
+  const baseCount = await User.countDocuments({ userId: { $exists: true } });
+  for (let i = 0; i < users.length; i++) {
+    users[i].userId = `LR-USR-${String(baseCount + i + 1).padStart(3, '0')}`;
+    await users[i].save();
+  }
+  console.log(`Backfilled userId for ${users.length} users`);
+}
+
+// Backfill bookingCode for existing bookings
+async function backfillBookingCodes() {
+  const Booking = require('./models/Booking');
+  const bookings = await Booking.find({ bookingCode: { $exists: false } }).sort({ createdAt: 1 });
+  if (bookings.length === 0) return;
+  const baseCount = await Booking.countDocuments({ bookingCode: { $exists: true } });
+  for (let i = 0; i < bookings.length; i++) {
+    bookings[i].bookingCode = `LR-INV-${String(baseCount + i + 1).padStart(3, '0')}`;
+    await bookings[i].save();
+  }
+  console.log(`Backfilled bookingCode for ${bookings.length} bookings`);
+}
+
 // Start
-connectDB().then(() => {
+connectDB().then(async () => {
+  await backfillUserIds();
+  await backfillBookingCodes();
   socket.init(server)
   server.listen(PORT, () => console.log(`Server is running on port: ${PORT}`));
 });

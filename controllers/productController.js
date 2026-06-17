@@ -1,4 +1,5 @@
-const Product = require('../models/Product');
+const Product  = require('../models/Product');
+const Category = require('../models/Category');
 
 exports.getAvailableProducts = async (req, res) => {
   try {
@@ -12,8 +13,15 @@ exports.getAvailableProducts = async (req, res) => {
 
 exports.getCategories = async (req, res) => {
   try {
-    const categories = await Product.distinct('category', { category: { $ne: null, $ne: '' } });
-    res.json(categories);
+    // Return categories in admin-defined position order
+    const cats = await Category.find().sort({ position: 1, name: 1 }).lean();
+    if (cats.length > 0) {
+      res.json(cats.map(c => c.name));
+    } else {
+      // Fallback: derive from products if no categories configured
+      const names = await Product.distinct('category', { category: { $ne: null, $ne: '' } });
+      res.json(names);
+    }
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

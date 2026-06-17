@@ -10,6 +10,7 @@ const paymentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const bookingSchema = new mongoose.Schema({
+  bookingCode: { type: String, unique: true, sparse: true },
   productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   quantity:  { type: Number, default: 1, min: 1 },
   items: [{
@@ -33,7 +34,7 @@ const bookingSchema = new mongoose.Schema({
     enum: [
       'Request Submitted', 'KYC Pending', 'KYC Approved', 'Approved',
       'Ready for Pickup', 'Picked Up', 'During Rental', 'Return Pending',
-      'Returned', 'Closed', 'Rejected', 'Active',
+      'Returned', 'Closed', 'Reopened', 'Rejected', 'Active',
     ],
     default: 'Request Submitted',
   },
@@ -42,6 +43,7 @@ const bookingSchema = new mongoose.Schema({
   originalPrice:   { type: Number, default: 0 },
   notes:           String,
   rejectionReason: String,
+  reopenNotes:     String,
   pickupLocation:  { type: String, default: '' },
   returnCondition: { type: String, enum: ['Good', 'Bad'], default: 'Good' },
   returnNotes:     String,
@@ -51,6 +53,12 @@ const bookingSchema = new mongoose.Schema({
   totalPaid:       { type: Number, default: 0 },
   pendingAmount:   { type: Number, default: 0 },
   createdAt:       { type: Date, default: Date.now },
+});
+
+bookingSchema.pre('save', async function () {
+  if (this.bookingCode) return;
+  const count = await mongoose.model('Booking').countDocuments();
+  this.bookingCode = `LR-INV-${String(count + 1).padStart(3, '0')}`;
 });
 
 module.exports = mongoose.model('Booking', bookingSchema);
