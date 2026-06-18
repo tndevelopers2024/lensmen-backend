@@ -4,6 +4,7 @@ const { User, formatUserResponse } = require('../models/User');
 const socket          = require('../config/socket');
 const transporter     = require('../config/mailer');
 const emailTemplates  = require('../utils/emailTemplates');
+const { sendWhatsApp, fmtDate, itemNames } = require('../config/whatsapp');
 
 const sendEmail = async (to, tpl) => {
   if (!tpl || !to) return
@@ -127,6 +128,23 @@ exports.updateBookingStatus = async (req, res) => {
       await sendEmail(booking.userEmail, emailTpl)
     }
 
+    // WhatsApp notification per status
+    const wa   = (tpl, body, btn = null) => booking.userMobile
+      ? sendWhatsApp(booking.userMobile, tpl, body, btn).catch(() => {}) : null
+    const code = booking.bookingCode
+    const items = itemNames(booking)
+    const loc  = booking.pickupLocation || 'Our Store'
+    const WA_STATUS = {
+      'Approved':        () => wa('lr_order_approved',     [booking.userName, code, items, loc, fmtDate(booking.startDate)], code),
+      'Ready for Pickup':() => wa('lr_order_ready_pickup', [booking.userName, code, items, loc, fmtDate(booking.startDate)], code),
+      'Picked Up':       () => wa('lr_order_picked_up',    [booking.userName, code, items, fmtDate(booking.endDate)], code),
+      'Return Pending':  () => wa('lr_return_due_soon',    [booking.userName, code, items, fmtDate(booking.endDate)], code),
+      'Returned':        () => wa('lr_order_returned',     [booking.userName, code, items], code),
+      'Closed':          () => wa('lr_order_closed',       [booking.userName, code, items], code),
+      'Rejected':        () => wa('lr_order_rejected',     [booking.userName, code, rejectionReason || 'Request not approved']),
+    }
+    if (WA_STATUS[status]) WA_STATUS[status]()
+
     res.json({ message: `Booking marked as ${status}`, status });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -154,6 +172,18 @@ exports.verifyKyc = async (req, res) => {
       ? emailTemplates.kycApproved(user.fullName || user.email)
       : emailTemplates.kycRejected(user.fullName || user.email, kycRejectionReason)
     await sendEmail(user.email, kycTpl)
+
+    // WhatsApp notification
+    if (user.mobile) {
+      if (kycStatus === 'Approved') {
+        sendWhatsApp(user.mobile, 'lr_kyc_approved', [user.fullName || user.email]).catch(() => {})
+      } else {
+        sendWhatsApp(user.mobile, 'lr_kyc_rejected', [
+          user.fullName || user.email,
+          kycRejectionReason || 'Documents could not be verified',
+        ]).catch(() => {})
+      }
+    }
 
     res.json({ message: `KYC status updated to ${kycStatus}`, user: formatUserResponse(user) });
   } catch (err) {

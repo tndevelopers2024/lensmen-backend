@@ -4,6 +4,7 @@ const { User } = require('../models/User');
 const socket         = require('../config/socket');
 const transporter    = require('../config/mailer');
 const emailTemplates = require('../utils/emailTemplates');
+const { sendWhatsApp, fmtDate, itemNames } = require('../config/whatsapp');
 
 const sendEmail = async (to, tpl) => {
   if (!tpl || !to) return
@@ -106,6 +107,18 @@ exports.createBooking = async (req, res) => {
     // Confirmation email to customer
     await sendEmail(userEmail, emailTemplates.bookingSubmitted(newBooking))
 
+    // WhatsApp confirmation
+    if (userMobile) {
+      sendWhatsApp(userMobile, 'lr_booking_submitted', [
+        userName,
+        newBooking.bookingCode,
+        itemNames(newBooking),
+        fmtDate(newBooking.startDate),
+        fmtDate(newBooking.endDate),
+        String(Math.round(newBooking.totalPrice)),
+      ], newBooking.bookingCode).catch(() => {})
+    }
+
     res.status(201).json(newBooking);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -172,6 +185,16 @@ exports.cancelBooking = async (req, res) => {
       message: `${cancelName} cancelled their rental of ${cancelItem}`,
     })
     await sendEmail(userEmail, emailTemplates.bookingCancelled(cancelledBookingData))
+
+    // WhatsApp cancellation
+    const cancelMobile = cancelledBookingData.userMobile
+    if (cancelMobile) {
+      sendWhatsApp(cancelMobile, 'lr_booking_cancelled', [
+        cancelledBookingData.userName,
+        cancelledBookingData.bookingCode,
+      ]).catch(() => {})
+    }
+
     res.json({ message: 'Booking cancelled successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });

@@ -1,6 +1,7 @@
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
 const socket  = require('../config/socket');
+const { sendWhatsApp } = require('../config/whatsapp');
 
 // POST /api/payments/:id — record advance or final payment
 exports.recordPayment = async (req, res) => {
@@ -36,6 +37,18 @@ exports.recordPayment = async (req, res) => {
 
     await booking.save();
     socket.emit('booking:updated', { userEmail: booking.userEmail, status: booking.status })
+
+    // WhatsApp payment receipt
+    if (booking.userMobile) {
+      sendWhatsApp(booking.userMobile, 'lr_payment_received', [
+        booking.userName,
+        booking.bookingCode,
+        type === 'advance' ? 'Advance' : 'Final',
+        String(Math.round(Number(amount))),
+        String(Math.round(booking.pendingAmount)),
+      ], booking.bookingCode).catch(() => {})
+    }
+
     res.json({ message: 'Payment recorded', booking });
   } catch (err) {
     res.status(500).json({ message: err.message });

@@ -1,5 +1,6 @@
 const { User, formatUserResponse } = require('../models/User');
 const socket = require('../config/socket');
+const { sendWhatsApp } = require('../config/whatsapp');
 
 exports.getMe = async (req, res) => {
   try {
@@ -45,6 +46,10 @@ exports.uploadKyc = async (req, res) => {
     user.kycStatus = 'Pending';
     user.kycRejectionReason = undefined;
     await user.save();
+
+    if (user.mobile) {
+      sendWhatsApp(user.mobile, 'lr_kyc_submitted', [user.fullName || user.email]).catch(() => {})
+    }
 
     res.json(formatUserResponse(user));
   } catch (err) {

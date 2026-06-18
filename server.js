@@ -17,6 +17,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const quoteRoutes         = require('./routes/quoteRoutes');
 const notificationRoutes  = require('./routes/notificationRoutes');
 const offerRoutes         = require('./routes/offerRoutes');
+const menuRoutes          = require('./routes/menuRoutes');
 
 const app    = express();
 const server = http.createServer(app);
@@ -44,6 +45,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/quotes',         quoteRoutes);
 app.use('/api/notifications',  notificationRoutes);
 app.use('/api/offers',         offerRoutes);
+app.use('/api/menus',          menuRoutes);
 
 // Backfill userId for existing users who don't have one
 async function backfillUserIds() {

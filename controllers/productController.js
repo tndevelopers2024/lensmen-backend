@@ -13,14 +13,17 @@ exports.getAvailableProducts = async (req, res) => {
 
 exports.getCategories = async (req, res) => {
   try {
-    // Return categories in admin-defined position order
     const cats = await Category.find().sort({ position: 1, name: 1 }).lean();
     if (cats.length > 0) {
-      res.json(cats.map(c => c.name));
+      // Return full objects so frontend can use subcategories and imageUrl
+      res.json(cats.map(c => ({
+        name:          c.name,
+        imageUrl:      c.imageUrl || '',
+        subcategories: c.subcategories || [],
+      })))
     } else {
-      // Fallback: derive from products if no categories configured
       const names = await Product.distinct('category', { category: { $ne: null, $ne: '' } });
-      res.json(names);
+      res.json(names.map(n => ({ name: n, imageUrl: '', subcategories: [] })));
     }
   } catch (err) {
     res.status(500).json({ message: err.message });

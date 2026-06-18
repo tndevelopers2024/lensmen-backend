@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { User, formatUserResponse } = require('../models/User');
 const transporter = require('../config/mailer');
 const emailTemplates = require('../utils/emailTemplates');
+const { sendWhatsApp } = require('../config/whatsapp');
 
 // ── Generate + email a 6-digit OTP, store on the user ──────────────────
 const sendOtp = async (user, purpose = 'verification') => {
@@ -17,6 +18,9 @@ const sendOtp = async (user, purpose = 'verification') => {
     subject,
     html,
   });
+
+  const waTemplate = purpose === 'login' ? 'lr_otp_login' : 'lr_otp_register'
+  if (user.mobile) sendWhatsApp(user.mobile, waTemplate, [otp]).catch(() => {})
 };
 
 exports.register = async (req, res) => {
@@ -105,6 +109,7 @@ exports.forgotPassword = async (req, res) => {
       html: resetHtml,
     });
 
+    if (user.mobile) sendWhatsApp(user.mobile, 'lr_password_resets', [otp]).catch(() => {})
     res.json({ message: 'Password reset OTP sent', email: user.email, flow: 'forgot-password' });
   } catch (err) {
     res.status(500).json({ message: err.message });

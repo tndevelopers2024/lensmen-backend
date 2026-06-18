@@ -54,7 +54,7 @@ exports.reorder = async (req, res) => {
 // PUT /api/categories/:id  — rename cascades to products
 exports.update = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, imageUrl, subcategories } = req.body;
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ message: 'Category not found' });
 
@@ -65,12 +65,13 @@ exports.update = async (req, res) => {
     if (newName !== oldName) {
       const dup = await Category.findOne({ name: newName, _id: { $ne: category._id } });
       if (dup) return res.status(400).json({ message: 'Another category with that name exists' });
-      // Cascade rename to all products using the old name
       await Product.updateMany({ category: oldName }, { category: newName });
     }
 
     category.name = newName;
     if (description !== undefined) category.description = description;
+    if (imageUrl !== undefined) category.imageUrl = imageUrl;
+    if (subcategories !== undefined) category.subcategories = Array.isArray(subcategories) ? subcategories : [];
     await category.save();
     res.json(category);
   } catch (err) {
