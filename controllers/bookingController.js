@@ -200,3 +200,14 @@ exports.cancelBooking = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+
+exports.getByCode = async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ bookingCode: req.params.code })
+      .populate('items.productId', 'name imageUrl pricePerDay')
+      .lean();
+    if (!booking) return res.status(404).json({ message: 'Order not found' });
+    res.json(booking);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
