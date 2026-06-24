@@ -18,6 +18,8 @@ const quoteRoutes         = require('./routes/quoteRoutes');
 const notificationRoutes  = require('./routes/notificationRoutes');
 const offerRoutes         = require('./routes/offerRoutes');
 const menuRoutes          = require('./routes/menuRoutes');
+const vendorRoutes        = require('./routes/vendorRoutes');
+const productUnitRoutes   = require('./routes/productUnitRoutes');
 
 const app    = express();
 const server = http.createServer(app);
@@ -46,6 +48,8 @@ app.use('/api/quotes',         quoteRoutes);
 app.use('/api/notifications',  notificationRoutes);
 app.use('/api/offers',         offerRoutes);
 app.use('/api/menus',          menuRoutes);
+app.use('/api/vendors',        vendorRoutes);
+app.use('/api/products/:productId/units', productUnitRoutes);
 
 // Backfill userId for existing users who don't have one
 async function backfillUserIds() {
@@ -73,10 +77,41 @@ async function backfillBookingCodes() {
   console.log(`Backfilled bookingCode for ${bookings.length} bookings`);
 }
 
+// Backfill ProductUnit records for existing products that have none
+async function backfillProductUnits() {
+  const Product     = require('./models/Product');
+  const ProductUnit = require('./models/ProductUnit');
+
+  const products = await Product.find({}).lean();
+  let created = 0;
+
+  for (const p of products) {
+    const existing = await ProductUnit.countDocuments({ productId: p._id });
+    if (existing > 0) continue;
+
+    const total     = p.totalQuantity     || 1;
+    const available = p.availableQuantity ?? total;
+    const rented    = Math.max(0, total - available);
+
+    // Create available units first, then rented ones
+    for (let i = 0; i < total; i++) {
+      const status = i < available ? 'available' : 'rented';
+      // Build unitCode manually to avoid save-hook race condition on bulk insert
+      const seq      = i + 1;
+      const unitCode = `${p.sku}-U${String(seq).padStart(2, '0')}`;
+      await ProductUnit.create({ productId: p._id, unitCode, status });
+      created++;
+    }
+  }
+
+  if (created > 0) console.log(`Backfilled ${created} product unit records`);
+}
+
 // Start
 connectDB().then(async () => {
   await backfillUserIds();
   await backfillBookingCodes();
+  await backfillProductUnits();
   socket.init(server)
   server.listen(PORT, () => console.log(`Server is running on port: ${PORT}`));
 });

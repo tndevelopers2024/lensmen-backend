@@ -67,7 +67,8 @@ exports.lookupUserById = async (req, res) => {
 
 exports.updateBookingStatus = async (req, res) => {
   try {
-    const { status, returnCondition, returnNotes, rejectionReason, reopenNotes, pickupLocation } = req.body;
+    const { status, returnCondition, returnNotes, rejectionReason, reopenNotes, pickupLocation,
+            isEarlyReturn, actualReturnDate, actualDays, adjustedTotal, cancellationReason } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -81,6 +82,24 @@ exports.updateBookingStatus = async (req, res) => {
     if (rejectionReason !== undefined) booking.rejectionReason = rejectionReason;
     if (reopenNotes !== undefined) booking.reopenNotes = reopenNotes;
     if (pickupLocation !== undefined) booking.pickupLocation = pickupLocation;
+    if (cancellationReason !== undefined) booking.cancellationReason = cancellationReason;
+
+    // Handle early return: recalculate days and price
+    if (status === 'Returned' && isEarlyReturn && actualReturnDate) {
+      booking.isEarlyReturn    = true;
+      booking.actualReturnDate = new Date(actualReturnDate);
+      booking.endDate          = new Date(actualReturnDate);
+      if (actualDays) booking.actualDays = actualDays;
+      if (adjustedTotal !== undefined) {
+        booking.totalPrice    = Math.max(0, adjustedTotal);
+        const paid            = booking.totalPaid || 0;
+        const netBalance      = paid - booking.totalPrice;
+        // positive = refund owed to customer, negative = customer still owes
+        booking.earlyReturnRefund = netBalance;
+        booking.pendingAmount     = netBalance < 0 ? Math.abs(netBalance) : 0;
+      }
+    }
+
     await booking.save();
 
     // Restore stock when transitioning active → released
@@ -145,7 +164,7 @@ exports.updateBookingStatus = async (req, res) => {
     }
     if (WA_STATUS[status]) WA_STATUS[status]()
 
-    res.json({ message: `Booking marked as ${status}`, status });
+    res.json({ message: `Booking marked as ${status}`, status, booking });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -265,13 +284,176 @@ exports.updateUserClass = async (req, res) => {
   }
 };
 
-exports.deleteBooking = async (req, res) => {
+exports.updateBookingDetails = async (req, res) => {
   try {
+    const { items, startDate, endDate } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
-    await Booking.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Order deleted' });
+
+    if (items !== undefined) {
+      booking.items = items;
+      if (items.length > 0) booking.productId = items[0].productId;
+    }
+    if (startDate !== undefined) booking.startDate = new Date(startDate);
+    if (endDate !== undefined)   booking.endDate   = new Date(endDate);
+
+    if (booking.startDate && booking.endDate) {
+      const s = new Date(new Date(booking.startDate).toDateString());
+      const e = new Date(new Date(booking.endDate).toDateString());
+      booking.totalDays = Math.max(1, Math.round((e - s) / 86400000) + 1);
+    }
+
+    // Recalculate total price based on updated items and days
+    if (items !== undefined || startDate !== undefined || endDate !== undefined) {
+      const days = booking.totalDays || 1;
+      const subtotal = (booking.items || []).reduce((s, it) => s + (it.pricePerDay || 0) * (it.quantity || 1) * days, 0);
+      booking.totalPrice   = subtotal - (booking.discountAmount || 0);
+      booking.pendingAmount = Math.max(0, booking.totalPrice - (booking.totalPaid || 0));
+    }
+
+    await booking.save();
+    socket.emit('booking:updated', { userEmail: booking.userEmail });
+    res.json(booking);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+exports.archiveBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    booking.isArchived = true;
+    booking.archivedAt = new Date();
+    await booking.save();
+    res.json({ message: 'Order archived' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.restoreBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    booking.isArchived = false;
+    booking.archivedAt = null;
+    await booking.save();
+    res.json({ message: 'Order restored' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.permanentDeleteBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (!booking.isArchived) return res.status(400).json({ message: 'Order must be archived before permanent deletion' });
+    await Booking.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Order permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.sendOverdueReminder = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const mobile  = booking.userMobile;
+    const name    = booking.userName || 'Customer';
+    const code    = booking.bookingCode || booking._id.toString();
+    const items   = itemNames(booking.items || []);
+    const pending = booking.pendingAmount || 0;
+    const overdueDays = Math.max(0, Math.floor((Date.now() - new Date(booking.endDate)) / 86400000));
+
+    if (!mobile) return res.status(400).json({ message: 'No mobile number on booking' });
+
+    await sendWhatsApp(mobile, 'lr_payment_overdue', [name, code, items, String(pending), String(overdueDays)], code);
+    res.json({ message: 'Reminder sent' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.assignItemVendor = async (req, res) => {
+  try {
+    const { itemIndex, vendorId, vendorName, vendorCost } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (!booking.items[itemIndex]) return res.status(404).json({ message: 'Item not found' });
+
+    booking.items[itemIndex].vendorId   = vendorId   || null;
+    booking.items[itemIndex].vendorName = vendorName || '';
+    booking.items[itemIndex].vendorCost = Number(vendorCost) || 0;
+    booking.markModified('items');
+    await booking.save();
+    socket.emit('booking:updated', { userEmail: booking.userEmail });
+    res.json({ message: 'Vendor assigned', booking });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.markVendorPayment = async (req, res) => {
+  try {
+    const { vendorId, status, paidAmount } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    let changed = false;
+    booking.items.forEach((item, idx) => {
+      if (String(item.vendorId) === String(vendorId)) {
+        booking.items[idx].vendorPaymentStatus = status;
+        booking.items[idx].vendorPaidDate      = status === 'Paid' ? new Date() : null;
+        booking.items[idx].vendorPaidAmount    = status === 'Paid' ? Number(paidAmount) || 0 : 0;
+        changed = true;
+      }
+    });
+
+    if (!changed) return res.status(404).json({ message: 'No items found for this vendor in this booking' });
+    booking.markModified('items');
+    await booking.save();
+    socket.emit('booking:updated', { userEmail: booking.userEmail });
+    socket.emit('vendor:updated');
+    res.json({ message: 'Vendor payment updated', booking });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.assignItemUnit = async (req, res) => {
+  try {
+    const { itemIndex, unitId, unitCode } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (!booking.items[itemIndex]) return res.status(404).json({ message: 'Item not found' });
+
+    const ProductUnit = require('../models/ProductUnit');
+
+    // Unmark previous unit if there was one
+    const prevUnitId = booking.items[itemIndex].unitId;
+    if (prevUnitId && String(prevUnitId) !== String(unitId)) {
+      await ProductUnit.findByIdAndUpdate(prevUnitId, { status: 'available', currentBookingId: null });
+    }
+
+    if (unitId) {
+      // Mark new unit as rented
+      await ProductUnit.findByIdAndUpdate(unitId, { status: 'rented', currentBookingId: booking._id });
+      booking.items[itemIndex].unitId   = unitId;
+      booking.items[itemIndex].unitCode = unitCode || '';
+    } else {
+      // Clearing assignment
+      booking.items[itemIndex].unitId   = null;
+      booking.items[itemIndex].unitCode = '';
+    }
+
+    booking.markModified('items');
+    await booking.save();
+    socket.emit('booking:updated', { userEmail: booking.userEmail });
+    socket.emit('product:updated');
+    res.json({ message: 'Unit assigned', booking });
+  } catch (err) { res.status(500).json({ message: err.message }); }
 };

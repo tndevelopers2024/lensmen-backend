@@ -14,7 +14,7 @@ const sendEmail = async (to, tpl) => {
 }
 
 exports.createBooking = async (req, res) => {
-  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate, quantity, notes, offerCode } = req.body;
+  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate, quantity, notes, offerCode, userGstNumber, userGstBusinessName } = req.body;
   const qty = Math.max(1, parseInt(quantity) || 1);
 
   const start = new Date(startDate);
@@ -70,7 +70,7 @@ exports.createBooking = async (req, res) => {
       productId: bookingItems[0].productId,
       quantity: qty,
       items: bookingItems,
-      userName, userEmail, userAddress, userMobile, accountType,
+      userName, userEmail, userAddress, userMobile, userGstNumber, userGstBusinessName, accountType,
       startDate, endDate,
       totalDays: diffDays,
       originalPrice: totalPrice,
@@ -95,12 +95,12 @@ exports.createBooking = async (req, res) => {
 
     socket.emit('booking:new', { userEmail: newBooking.userEmail })
 
-    const itemNames = bookingItems.map(i => i.name).join(', ')
+    const itemList = bookingItems.map(i => i.name).join(', ')
     socket.notify({
       recipient: 'admin',
       type: 'booking_new',
       title: 'New Rental Request',
-      message: `${userName} requested: ${itemNames}`,
+      message: `${userName} requested: ${itemList}`,
       orderId: newBooking._id,
     })
 

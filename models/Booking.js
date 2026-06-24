@@ -19,12 +19,22 @@ const bookingSchema = new mongoose.Schema({
     pricePerDay: Number,
     imageUrl:    String,
     quantity:    { type: Number, default: 1 },
+    unitId:   { type: mongoose.Schema.Types.ObjectId, ref: 'ProductUnit', default: null },
+    unitCode: { type: String, default: '' },
+    vendorId:            { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
+    vendorName:          { type: String, default: '' },
+    vendorCost:          { type: Number, default: 0 },
+    vendorPaymentStatus: { type: String, enum: ['Pending', 'Paid'], default: 'Pending' },
+    vendorPaidDate:      { type: Date, default: null },
+    vendorPaidAmount:    { type: Number, default: 0 },
   }],
-  userName:    String,
-  userEmail:   String,
-  userAddress: String,
-  userMobile:  String,
-  accountType: String,
+  userName:        String,
+  userEmail:       String,
+  userAddress:     String,
+  userMobile:      String,
+  userGstNumber:   String,
+  userGstBusinessName: String,
+  accountType:     String,
   startDate:   Date,
   endDate:     Date,
   totalDays:   Number,
@@ -53,12 +63,28 @@ const bookingSchema = new mongoose.Schema({
   totalPaid:       { type: Number, default: 0 },
   pendingAmount:   { type: Number, default: 0 },
   createdAt:       { type: Date, default: Date.now },
+  isArchived:      { type: Boolean, default: false },
+  archivedAt:      { type: Date, default: null },
+  isEarlyReturn:      { type: Boolean, default: false },
+  actualReturnDate:   { type: Date, default: null },
+  actualDays:         { type: Number, default: null },
+  earlyReturnRefund:    { type: Number, default: 0 },
+  cancellationReason:   { type: String, default: '' },
 });
 
 bookingSchema.pre('save', async function () {
   if (this.bookingCode) return;
-  const count = await mongoose.model('Booking').countDocuments();
-  this.bookingCode = `LR-INV-${String(count + 1).padStart(3, '0')}`;
+  // Use max existing number instead of count so deletions don't cause collisions
+  const existing = await mongoose.model('Booking')
+    .find({ bookingCode: { $exists: true, $ne: null } })
+    .select('bookingCode -_id')
+    .lean();
+  const maxNum = existing.reduce((max, b) => {
+    const match = (b.bookingCode || '').match(/(\d+)$/);
+    const n = match ? parseInt(match[1], 10) : 0;
+    return n > max ? n : max;
+  }, 0);
+  this.bookingCode = `LR-INV-${String(maxNum + 1).padStart(3, '0')}`;
 });
 
 module.exports = mongoose.model('Booking', bookingSchema);

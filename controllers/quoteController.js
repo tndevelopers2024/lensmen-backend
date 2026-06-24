@@ -36,7 +36,7 @@ const calcTotals = (items, totalDays, discountAmount, gstEnabled, gstPercent = 1
 // POST /api/quotes
 exports.create = async (req, res) => {
   try {
-    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy } = req.body;
+    const { quoteCode, customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy } = req.body;
 
     const start     = new Date(startDate);
     const end       = new Date(endDate);
@@ -44,6 +44,7 @@ exports.create = async (req, res) => {
     const totals    = calcTotals(items, totalDays, discountAmount, gstEnabled, gstPercent);
 
     const quote = new Quote({
+      ...(quoteCode?.trim() ? { quoteCode: quoteCode.trim() } : {}),
       customerName, customerMobile, customerEmail,
       items: items || [],
       startDate, endDate, totalDays,
@@ -61,16 +62,19 @@ exports.create = async (req, res) => {
 // PUT /api/quotes/:id
 exports.update = async (req, res) => {
   try {
-    const { customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy, status } = req.body;
+    const { quoteCode, customerName, customerMobile, customerEmail, items, startDate, endDate, notes, discountAmount, gstEnabled, gstPercent, raisedBy, status } = req.body;
 
     const start     = new Date(startDate);
     const end       = new Date(endDate);
     const totalDays = Math.max(1, Math.round((new Date(end.getFullYear(), end.getMonth(), end.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000) + 1);
     const totals    = calcTotals(items, totalDays, discountAmount, gstEnabled, gstPercent);
 
+    const updateData = { customerName, customerMobile, customerEmail, items: items || [], startDate, endDate, totalDays, notes, raisedBy, status, ...totals };
+    if (quoteCode?.trim()) updateData.quoteCode = quoteCode.trim();
+
     const quote = await Quote.findByIdAndUpdate(
       req.params.id,
-      { customerName, customerMobile, customerEmail, items: items || [], startDate, endDate, totalDays, notes, raisedBy, status, ...totals },
+      updateData,
       { new: true }
     );
     if (!quote) return res.status(404).json({ message: 'Quote not found' });

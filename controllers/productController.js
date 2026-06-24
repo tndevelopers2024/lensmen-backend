@@ -38,17 +38,27 @@ exports.createProduct = async (req, res) => {
     const galleryImages = (req.files?.gallery || []).map(f => `/uploads/${f.filename}`);
 
     const total     = parseInt(totalQuantity)     || 1;
-    const available = parseInt(availableQuantity) ?? total;
+    const available = Math.min(parseInt(availableQuantity) ?? total, total);
 
     const product = new Product({
       name, description, pricePerDay, imageUrl, galleryImages, category,
       sku: sku || undefined,
       totalQuantity: total,
-      availableQuantity: Math.min(available, total),
+      availableQuantity: available,
       condition: condition || 'Good',
     });
 
     const saved = await product.save();
+
+    // Auto-create ProductUnit records
+    const ProductUnit = require('../models/ProductUnit');
+    for (let i = 0; i < total; i++) {
+      const seq      = i + 1;
+      const unitCode = `${saved.sku}-U${String(seq).padStart(2, '0')}`;
+      const status   = i < available ? 'available' : 'rented';
+      await ProductUnit.create({ productId: saved._id, unitCode, status });
+    }
+
     res.status(201).json(saved);
   } catch (err) {
     res.status(400).json({ message: err.message });

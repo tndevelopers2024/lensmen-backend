@@ -55,6 +55,51 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
+// PUT /api/payments/:id/payment/:index — edit an existing payment entry
+exports.editPayment = async (req, res) => {
+  try {
+    const { type, amount, mode, transactionId, notes } = req.body;
+    const idx = parseInt(req.params.index, 10);
+
+    if (!['advance', 'final'].includes(type)) {
+      return res.status(400).json({ message: 'type must be advance or final' });
+    }
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ message: 'amount must be positive' });
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (!booking.payments[idx]) return res.status(404).json({ message: 'Payment entry not found' });
+
+    const entry = booking.payments[idx];
+    entry.type          = type;
+    entry.amount        = Number(amount);
+    entry.mode          = mode;
+    entry.transactionId = transactionId || '';
+    entry.notes         = notes || '';
+
+    booking.totalPaid     = booking.payments.reduce((sum, p) => sum + p.amount, 0);
+    booking.pendingAmount = Math.max(0, (booking.totalPrice || 0) - booking.totalPaid);
+
+    if (booking.pendingAmount === 0) {
+      booking.paymentStatus = 'Fully Paid';
+    } else if (booking.payments.some(p => p.type === 'advance')) {
+      booking.paymentStatus = 'Advance Paid';
+    } else {
+      booking.paymentStatus = 'Pending';
+    }
+
+    booking.markModified('payments');
+    await booking.save();
+    socket.emit('booking:updated', { userEmail: booking.userEmail, status: booking.status });
+
+    res.json({ message: 'Payment updated', booking });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // GET /api/payments/accounts/summary
 exports.getAccountsSummary = async (req, res) => {
   try {

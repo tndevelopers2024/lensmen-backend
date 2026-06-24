@@ -1,13 +1,11 @@
-const express = require('express')
-const router  = express.Router()
-const menuController = require('../controllers/menuController')
+const express = require('express');
+const router  = express.Router();
+const mc      = require('../controllers/menuController');
 
-router.get('/',              menuController.getAll)
-router.post('/seed-main',    menuController.seedMain)
-router.post('/seed-sidebar', menuController.seedSidebar)
-router.get('/:handle',       menuController.getByHandle)
-router.post('/',             menuController.create)
-router.put('/:id',           menuController.update)
-router.delete('/:id',        menuController.remove)
+router.get('/',           mc.getMenus);
+router.get('/:handle',    mc.getMenu);
+router.post('/',          mc.createMenu);
+router.put('/:handle',    mc.updateMenu);
+router.delete('/:id',     mc.deleteMenu);
 
-module.exports = router
+module.exports = router;

@@ -2,13 +2,27 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
 const productController = require('../controllers/productController');
+const upload = require('../middleware/upload');
+
+router.post('/upload-image', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+  res.json({ url: `${base}/uploads/${req.file.filename}` });
+});
 
 router.get('/stats', adminController.getStats);
 router.post('/sync-stock', adminController.syncStock);
 router.get('/products', productController.getAllProductsAdmin);
 router.get('/bookings', adminController.getAllBookings);
 router.put('/bookings/:id/status', adminController.updateBookingStatus);
-router.delete('/bookings/:id', adminController.deleteBooking);
+router.put('/bookings/:id/details', adminController.updateBookingDetails);
+router.delete('/bookings/:id', adminController.archiveBooking);
+router.put('/bookings/:id/restore', adminController.restoreBooking);
+router.delete('/bookings/:id/permanent', adminController.permanentDeleteBooking);
+router.post('/bookings/:id/remind',        adminController.sendOverdueReminder);
+router.put('/bookings/:id/item-vendor',       adminController.assignItemVendor);
+router.put('/bookings/:id/item-unit',         adminController.assignItemUnit);
+router.put('/bookings/:id/vendor-payment',    adminController.markVendorPayment);
 router.get('/users', adminController.getAllUsers);
 router.get('/users/lookup/:userId', adminController.lookupUserById);
 router.put('/users/:id/kyc', adminController.verifyKyc);

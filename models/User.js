@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema({
   secondMobile: String,
   companyName: String,
   address: String,
+  gstNumber: String,
+  gstBusinessName: String,
   accountType: { type: String, enum: ['Private', 'Company'], default: 'Private' },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   otp: String,
