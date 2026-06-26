@@ -44,7 +44,7 @@ const bookingSchema = new mongoose.Schema({
     enum: [
       'Request Submitted', 'KYC Pending', 'KYC Approved', 'Approved',
       'Ready for Pickup', 'Picked Up', 'During Rental', 'Return Pending',
-      'Returned', 'Closed', 'Reopened', 'Rejected', 'Active',
+      'Returned', 'Closed', 'Reopened', 'Rejected', 'Active', 'Cancelled',
     ],
     default: 'Request Submitted',
   },

@@ -72,7 +72,7 @@ exports.updateBookingStatus = async (req, res) => {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
-    const RELEASED = ['Returned', 'Closed', 'Rejected'];
+    const RELEASED = ['Returned', 'Closed', 'Rejected', 'Cancelled'];
     const wasReleased = RELEASED.includes(booking.status);
     const willBeReleased = RELEASED.includes(status);
 
