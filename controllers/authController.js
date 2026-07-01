@@ -56,6 +56,10 @@ exports.login = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
+    if (!user.password) {
+      return res.status(403).json({ code: 'NO_PASSWORD', message: 'Your account was created by admin. Please set your password to continue.', email: user.email });
+    }
+
     let isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch && password === user.password) isMatch = true;
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });

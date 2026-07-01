@@ -70,6 +70,10 @@ const bookingSchema = new mongoose.Schema({
   actualDays:         { type: Number, default: null },
   earlyReturnRefund:    { type: Number, default: 0 },
   cancellationReason:   { type: String, default: '' },
+  adminNotes: [{
+    text:      { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  }],
 });
 
 bookingSchema.pre('save', async function () {

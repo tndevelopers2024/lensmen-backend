@@ -2,6 +2,7 @@ const Quote   = require('../models/Quote');
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
 const { User } = require('../models/User');
+const socket  = require('../config/socket');
 
 // GET /api/quotes
 exports.getAll = async (req, res) => {
@@ -138,6 +139,20 @@ exports.convertToOrder = async (req, res) => {
     quote.status             = 'Converted';
     quote.convertedBookingId = booking._id;
     await quote.save();
+
+    if (quote.customerEmail) {
+      const user = await User.findOne({ email: quote.customerEmail });
+      const isNewAccount = user?.adminCreated && !user?.password;
+      socket.notify({
+        recipient: quote.customerEmail,
+        type: 'booking_new',
+        title: isNewAccount ? 'Welcome to Lensmen Rentals! 🎉' : 'Rental Order Confirmed',
+        message: isNewAccount
+          ? `Your rental order ${booking.bookingCode} has been created. Your account is ready — open the app and click "Forgot Password" to set your password and access your orders.`
+          : `Your quote has been converted to a rental order (${booking.bookingCode}).`,
+        orderId: booking._id,
+      }).catch(() => {});
+    }
 
     res.json({ message: 'Quote converted to order', booking, quote });
   } catch (err) {

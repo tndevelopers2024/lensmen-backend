@@ -46,6 +46,31 @@ exports.getAllBookings = async (req, res) => {
   }
 };
 
+exports.createUser = async (req, res) => {
+  try {
+    const { fullName, email, mobile } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(409).json({ message: 'User already exists', user: formatUserResponse(existing) });
+    const user = new User({ fullName: fullName || email, email, mobile: mobile || '', password: '', isVerified: true, adminCreated: true });
+    await user.save();
+    res.status(201).json(formatUserResponse(user));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.checkUserEmail = async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email required' });
+    const user = await User.findOne({ email }).select('-password');
+    res.json({ exists: !!user, user: user || null });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find().select('-password').sort({ createdAt: -1 });
@@ -319,6 +344,24 @@ exports.updateBookingDetails = async (req, res) => {
   }
 };
 
+exports.updateAdminNotes = async (req, res) => {
+  try {
+    const { text, deleteIndex } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+    if (deleteIndex !== undefined) {
+      booking.adminNotes.splice(deleteIndex, 1);
+    } else {
+      if (!text?.trim()) return res.status(400).json({ message: 'Note text is required' });
+      booking.adminNotes.push({ text: text.trim() });
+    }
+    await booking.save();
+    res.json(booking);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.archiveBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -456,4 +499,41 @@ exports.assignItemUnit = async (req, res) => {
     socket.emit('product:updated');
     res.json({ message: 'Unit assigned', booking });
   } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+exports.createManualBooking = async (req, res) => {
+  try {
+    const { userName, userEmail, userMobile, userAddress, accountType, items, startDate, endDate, totalDays, totalPrice, discountAmount, notes, status } = req.body;
+    if (!items?.length) return res.status(400).json({ message: 'At least one item required' });
+    if (!startDate || !endDate) return res.status(400).json({ message: 'Start and end date required' });
+
+    const user = userEmail ? await User.findOne({ email: userEmail }) : null;
+    let initialStatus = status || 'Approved';
+    if (user?.kycStatus === 'Approved') initialStatus = status || 'KYC Approved';
+
+    const booking = new Booking({
+      productId:     items[0]?.productId,
+      items,
+      userName:      userName || '',
+      userEmail:     userEmail || '',
+      userMobile:    userMobile || '',
+      userAddress:   userAddress || '',
+      accountType:   accountType || 'Private',
+      startDate:     new Date(startDate),
+      endDate:       new Date(endDate),
+      totalDays:     totalDays || 1,
+      totalPrice:    totalPrice || 0,
+      discountAmount: discountAmount || 0,
+      originalPrice:  totalPrice || 0,
+      notes:         notes || '',
+      status:        initialStatus,
+      pendingAmount: totalPrice || 0,
+    });
+    await booking.save();
+
+    socket.emit('booking:updated', { userEmail: booking.userEmail });
+    res.status(201).json(booking);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };

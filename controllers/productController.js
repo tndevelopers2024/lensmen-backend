@@ -38,7 +38,7 @@ exports.createProduct = async (req, res) => {
     const galleryImages = (req.files?.gallery || []).map(f => `/uploads/${f.filename}`);
 
     const total     = parseInt(totalQuantity)     || 1;
-    const available = Math.min(parseInt(availableQuantity) ?? total, total);
+    const available = Math.min(parseInt(availableQuantity) || total, total);
 
     const product = new Product({
       name, description, pricePerDay, imageUrl, galleryImages, category,
