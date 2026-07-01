@@ -311,7 +311,7 @@ exports.updateUserClass = async (req, res) => {
 
 exports.updateBookingDetails = async (req, res) => {
   try {
-    const { items, startDate, endDate, gstEnabled, gstRate } = req.body;
+    const { items, startDate, endDate, gstEnabled, gstRate, offerCode, discountAmount, totalPrice } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -321,8 +321,11 @@ exports.updateBookingDetails = async (req, res) => {
     }
     if (startDate !== undefined)    booking.startDate  = new Date(startDate);
     if (endDate !== undefined)      booking.endDate    = new Date(endDate);
-    if (gstEnabled !== undefined)   booking.gstEnabled = gstEnabled;
-    if (gstRate !== undefined)      booking.gstRate    = gstRate;
+    if (gstEnabled !== undefined)    booking.gstEnabled    = gstEnabled;
+    if (gstRate !== undefined)       booking.gstRate       = gstRate;
+    if (offerCode !== undefined)     booking.offerCode     = offerCode;
+    if (discountAmount !== undefined) booking.discountAmount = discountAmount;
+    if (totalPrice !== undefined)    booking.totalPrice    = totalPrice;
 
     if (booking.startDate && booking.endDate) {
       const s = new Date(new Date(booking.startDate).toDateString());
