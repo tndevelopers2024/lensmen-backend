@@ -70,6 +70,8 @@ const bookingSchema = new mongoose.Schema({
   actualDays:         { type: Number, default: null },
   earlyReturnRefund:    { type: Number, default: 0 },
   cancellationReason:   { type: String, default: '' },
+  gstEnabled:  { type: Boolean, default: false },
+  gstRate:     { type: Number, default: 18 },
   adminNotes: [{
     text:      { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
