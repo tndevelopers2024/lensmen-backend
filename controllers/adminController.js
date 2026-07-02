@@ -142,6 +142,16 @@ exports.updateBookingStatus = async (req, res) => {
           await prod.save();
         }
       }
+
+      // Free up any physical units assigned to this booking's items
+      const ProductUnit = require('../models/ProductUnit');
+      const unitIds = itemsToRestore.map(item => item.unitId).filter(Boolean);
+      if (unitIds.length) {
+        await ProductUnit.updateMany(
+          { _id: { $in: unitIds } },
+          { status: 'available', currentBookingId: null }
+        );
+      }
     }
 
     socket.emit('booking:updated', { userEmail: booking.userEmail, status })
@@ -311,9 +321,17 @@ exports.updateUserClass = async (req, res) => {
 
 exports.updateBookingDetails = async (req, res) => {
   try {
-    const { items, startDate, endDate, gstEnabled, gstRate, offerCode, discountAmount, totalPrice } = req.body;
+    const { items, startDate, endDate, gstEnabled, gstRate, offerCode, discountAmount, totalPrice, bookingCode } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    if (bookingCode !== undefined) {
+      const trimmed = String(bookingCode).trim();
+      if (!trimmed) return res.status(400).json({ message: 'Invoice/Order number cannot be empty' });
+      const clash = await Booking.findOne({ bookingCode: trimmed, _id: { $ne: booking._id } });
+      if (clash) return res.status(400).json({ message: `"${trimmed}" is already used by another order` });
+      booking.bookingCode = trimmed;
+    }
 
     if (items !== undefined) {
       booking.items = items;
