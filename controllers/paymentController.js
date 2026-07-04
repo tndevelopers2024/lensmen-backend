@@ -3,6 +3,12 @@ const Product = require('../models/Product');
 const socket  = require('../config/socket');
 const { sendWhatsApp } = require('../config/whatsapp');
 
+// GST-inclusive total owed by the customer
+const grandTotal = (booking) => {
+  const base = booking.totalPrice || 0;
+  return booking.gstEnabled ? +(base * (1 + (booking.gstRate || 18) / 100)).toFixed(2) : base;
+};
+
 // POST /api/payments/:id — record advance or final payment
 exports.recordPayment = async (req, res) => {
   try {
@@ -27,7 +33,7 @@ exports.recordPayment = async (req, res) => {
     });
 
     booking.totalPaid     = booking.payments.reduce((sum, p) => sum + p.amount, 0);
-    booking.pendingAmount = Math.max(0, (booking.totalPrice || 0) - booking.totalPaid);
+    booking.pendingAmount = Math.max(0, grandTotal(booking) - booking.totalPaid);
 
     if (booking.pendingAmount === 0) {
       booking.paymentStatus = 'Fully Paid';
@@ -80,7 +86,7 @@ exports.editPayment = async (req, res) => {
     entry.notes         = notes || '';
 
     booking.totalPaid     = booking.payments.reduce((sum, p) => sum + p.amount, 0);
-    booking.pendingAmount = Math.max(0, (booking.totalPrice || 0) - booking.totalPaid);
+    booking.pendingAmount = Math.max(0, grandTotal(booking) - booking.totalPaid);
 
     if (booking.pendingAmount === 0) {
       booking.paymentStatus = 'Fully Paid';

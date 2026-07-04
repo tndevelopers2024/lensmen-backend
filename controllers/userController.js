@@ -16,8 +16,12 @@ exports.getMe = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const { email, fullName, mobile, address, gstNumber, gstBusinessName } = req.body;
-    const user = await User.findOneAndUpdate({ email }, { fullName, mobile, address, gstNumber, gstBusinessName }, { new: true });
+    const { email, fullName, mobile, secondMobile, companyName, address, gstNumber, gstBusinessName } = req.body;
+    const user = await User.findOneAndUpdate(
+      { email },
+      { fullName, mobile, secondMobile, companyName, address, gstNumber, gstBusinessName },
+      { new: true }
+    );
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(formatUserResponse(user));
   } catch (err) {

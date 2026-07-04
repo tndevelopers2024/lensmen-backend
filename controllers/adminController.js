@@ -93,7 +93,7 @@ exports.lookupUserById = async (req, res) => {
 exports.updateBookingStatus = async (req, res) => {
   try {
     const { status, returnCondition, returnNotes, rejectionReason, reopenNotes, pickupLocation,
-            isEarlyReturn, actualReturnDate, actualDays, adjustedTotal, cancellationReason } = req.body;
+            isEarlyReturn, actualReturnDate, actualDays, adjustedTotal, cancellationReason, returnedAt } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -108,6 +108,7 @@ exports.updateBookingStatus = async (req, res) => {
     if (reopenNotes !== undefined) booking.reopenNotes = reopenNotes;
     if (pickupLocation !== undefined) booking.pickupLocation = pickupLocation;
     if (cancellationReason !== undefined) booking.cancellationReason = cancellationReason;
+    if (status === 'Returned' && returnedAt) booking.returnedAt = new Date(returnedAt);
 
     // Handle early return: recalculate days and price
     if (status === 'Returned' && isEarlyReturn && actualReturnDate) {
@@ -321,7 +322,7 @@ exports.updateUserClass = async (req, res) => {
 
 exports.updateBookingDetails = async (req, res) => {
   try {
-    const { items, startDate, endDate, gstEnabled, gstRate, offerCode, discountAmount, totalPrice, bookingCode } = req.body;
+    const { items, startDate, endDate, gstEnabled, gstRate, offerCode, discountAmount, totalPrice, bookingCode, placeOfSupply } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
@@ -344,6 +345,7 @@ exports.updateBookingDetails = async (req, res) => {
     if (offerCode !== undefined)     booking.offerCode     = offerCode;
     if (discountAmount !== undefined) booking.discountAmount = discountAmount;
     if (totalPrice !== undefined)    booking.totalPrice    = totalPrice;
+    if (placeOfSupply !== undefined) booking.placeOfSupply = placeOfSupply;
 
     if (booking.startDate && booking.endDate) {
       const s = new Date(new Date(booking.startDate).toDateString());
@@ -355,8 +357,14 @@ exports.updateBookingDetails = async (req, res) => {
     if (items !== undefined || startDate !== undefined || endDate !== undefined) {
       const days = booking.totalDays || 1;
       const subtotal = (booking.items || []).reduce((s, it) => s + (it.pricePerDay || 0) * (it.quantity || 1) * days, 0);
-      booking.totalPrice   = subtotal - (booking.discountAmount || 0);
-      booking.pendingAmount = Math.max(0, booking.totalPrice - (booking.totalPaid || 0));
+      booking.totalPrice = subtotal - (booking.discountAmount || 0);
+    }
+
+    // Pending amount must reflect GST — recalc whenever price or GST settings change
+    if (items !== undefined || startDate !== undefined || endDate !== undefined || gstEnabled !== undefined || gstRate !== undefined || totalPrice !== undefined) {
+      const base       = booking.totalPrice || 0;
+      const grandTotal = booking.gstEnabled ? +(base * (1 + (booking.gstRate || 18) / 100)).toFixed(2) : base;
+      booking.pendingAmount = Math.max(0, grandTotal - (booking.totalPaid || 0));
     }
 
     await booking.save();
@@ -526,7 +534,7 @@ exports.assignItemUnit = async (req, res) => {
 
 exports.createManualBooking = async (req, res) => {
   try {
-    const { userName, userEmail, userMobile, userAddress, accountType, items, startDate, endDate, totalDays, totalPrice, discountAmount, notes, status } = req.body;
+    const { userName, userEmail, userMobile, userSecondMobile, userCompanyName, userGstNumber, userGstBusinessName, userAddress, accountType, items, startDate, endDate, totalDays, totalPrice, discountAmount, notes, status } = req.body;
     if (!items?.length) return res.status(400).json({ message: 'At least one item required' });
     if (!startDate || !endDate) return res.status(400).json({ message: 'Start and end date required' });
 
@@ -540,6 +548,10 @@ exports.createManualBooking = async (req, res) => {
       userName:      userName || '',
       userEmail:     userEmail || '',
       userMobile:    userMobile || '',
+      userSecondMobile: userSecondMobile || '',
+      userCompanyName:  userCompanyName || '',
+      userGstNumber:    userGstNumber || '',
+      userGstBusinessName: userGstBusinessName || '',
       userAddress:   userAddress || '',
       accountType:   accountType || 'Private',
       startDate:     new Date(startDate),

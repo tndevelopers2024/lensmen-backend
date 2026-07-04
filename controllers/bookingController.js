@@ -14,7 +14,7 @@ const sendEmail = async (to, tpl) => {
 }
 
 exports.createBooking = async (req, res) => {
-  const { productId, products, userName, userEmail, userAddress, userMobile, accountType, startDate, endDate, quantity, notes, offerCode, userGstNumber, userGstBusinessName } = req.body;
+  const { productId, products, userName, userEmail, userAddress, userMobile, userSecondMobile, userCompanyName, accountType, startDate, endDate, quantity, notes, offerCode, userGstNumber, userGstBusinessName } = req.body;
   const qty = Math.max(1, parseInt(quantity) || 1);
 
   const start = new Date(startDate);
@@ -70,7 +70,7 @@ exports.createBooking = async (req, res) => {
       productId: bookingItems[0].productId,
       quantity: qty,
       items: bookingItems,
-      userName, userEmail, userAddress, userMobile, userGstNumber, userGstBusinessName, accountType,
+      userName, userEmail, userAddress, userMobile, userSecondMobile, userCompanyName, userGstNumber, userGstBusinessName, accountType,
       startDate, endDate,
       totalDays: diffDays,
       originalPrice: totalPrice,
