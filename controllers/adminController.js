@@ -500,7 +500,7 @@ exports.markVendorPayment = async (req, res) => {
 
 exports.assignItemUnit = async (req, res) => {
   try {
-    const { itemIndex, unitId, unitCode } = req.body;
+    const { itemIndex, unitId, unitCode, pickupLocation } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
     if (!booking.items[itemIndex]) return res.status(404).json({ message: 'Item not found' });
@@ -522,6 +522,10 @@ exports.assignItemUnit = async (req, res) => {
       // Clearing assignment
       booking.items[itemIndex].unitId   = null;
       booking.items[itemIndex].unitCode = '';
+    }
+
+    if (pickupLocation !== undefined) {
+      booking.pickupLocation = pickupLocation;
     }
 
     booking.markModified('items');
