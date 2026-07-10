@@ -22,7 +22,12 @@ const vendorSchema = new mongoose.Schema({
 
 vendorSchema.pre('save', async function () {
   if (this.vendorNumber) return;
-  const count = await mongoose.model('Vendor').countDocuments();
+  const lastDoc = await mongoose.model('Vendor').findOne().sort({ _id: -1 });
+  let count = 0;
+  if (lastDoc && lastDoc.vendorNumber) {
+    const parts = lastDoc.vendorNumber.split('-');
+    count = parseInt(parts[parts.length - 1], 10) || 0;
+  }
   this.vendorNumber = `LR-VEN-${String(count + 1).padStart(3, '0')}`;
 });
 

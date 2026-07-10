@@ -16,7 +16,12 @@ productUnitSchema.pre('save', async function () {
   const Product = mongoose.model('Product');
   const product = await Product.findById(this.productId).select('sku').lean();
   const prefix  = product?.sku || 'UNK';
-  const count   = await mongoose.model('ProductUnit').countDocuments({ productId: this.productId });
+  const lastDoc = await mongoose.model('ProductUnit').findOne({ productId: this.productId }).sort({ _id: -1 });
+  let count = 0;
+  if (lastDoc && lastDoc.unitCode) {
+    const parts = lastDoc.unitCode.split('-U');
+    count = parseInt(parts[parts.length - 1], 10) || 0;
+  }
   this.unitCode = `${prefix}-U${String(count + 1).padStart(2, '0')}`;
 });
 

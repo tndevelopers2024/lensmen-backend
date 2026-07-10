@@ -19,8 +19,13 @@ const productSchema = new mongoose.Schema({
 productSchema.pre('save', async function () {
   if (!this.sku) {
     const prefix = (this.category || 'GEN').toUpperCase().slice(0, 3).replace(/\s/g, '');
-    const count  = await mongoose.model('Product').countDocuments();
-    this.sku     = `${prefix}-${String(count + 1).padStart(4, '0')}`;
+    const lastDoc = await mongoose.model('Product').findOne().sort({ _id: -1 });
+    let count = 0;
+    if (lastDoc && lastDoc.sku) {
+      const parts = lastDoc.sku.split('-');
+      count = parseInt(parts[parts.length - 1], 10) || 0;
+    }
+    this.sku = `${prefix}-${String(count + 1).padStart(4, '0')}`;
   }
   this.isAvailable = this.availableQuantity > 0;
 });

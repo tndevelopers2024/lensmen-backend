@@ -42,7 +42,12 @@ quoteSchema.pre('save', async function () {
   const mm     = String(today.getMonth() + 1).padStart(2, '0');
   const dd     = String(today.getDate()).padStart(2, '0');
   const prefix = `LR-${yy}${mm}${dd}`;
-  const count  = await mongoose.model('Quote').countDocuments();
+  const lastDoc = await mongoose.model('Quote').findOne().sort({ _id: -1 });
+  let count = 0;
+  if (lastDoc && lastDoc.quoteCode) {
+    const parts = lastDoc.quoteCode.split('-');
+    count = parseInt(parts[parts.length - 1], 10) || 0;
+  }
   this.quoteCode = `${prefix}-${String(count + 1).padStart(3, '0')}`;
 });
 

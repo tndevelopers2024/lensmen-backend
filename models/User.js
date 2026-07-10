@@ -31,7 +31,12 @@ const userSchema = new mongoose.Schema({
 
 userSchema.pre('save', async function () {
   if (this.userId) return;
-  const count = await mongoose.model('User').countDocuments();
+  const lastDoc = await mongoose.model('User').findOne().sort({ _id: -1 });
+  let count = 0;
+  if (lastDoc && lastDoc.userId) {
+    const parts = lastDoc.userId.split('-');
+    count = parseInt(parts[parts.length - 1], 10) || 0;
+  }
   this.userId = `LR-USR-${String(count + 1).padStart(3, '0')}`;
 });
 
