@@ -29,6 +29,7 @@ router.post('/users',              adminController.createUser);
 router.get('/users/check-email',   adminController.checkUserEmail);
 router.get('/users',               adminController.getAllUsers);
 router.get('/users/lookup/:userId', adminController.lookupUserById);
+router.put('/users/:id', adminController.updateUser);
 router.put('/users/:id/kyc', adminController.verifyKyc);
 router.put('/users/:id/class', adminController.updateUserClass);
 router.delete('/users/:id', adminController.deleteUser);

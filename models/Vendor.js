@@ -22,7 +22,11 @@ const vendorSchema = new mongoose.Schema({
 
 vendorSchema.pre('save', async function () {
   if (this.vendorNumber) return;
-  const lastDoc = await mongoose.model('Vendor').findOne().sort({ _id: -1 });
+  const lastDoc = await mongoose.model('Vendor')
+    .findOne({ vendorNumber: { $exists: true, $ne: null } })
+    .collation({ locale: 'en_US', numericOrdering: true })
+    .sort({ vendorNumber: -1 });
+
   let count = 0;
   if (lastDoc && lastDoc.vendorNumber) {
     const parts = lastDoc.vendorNumber.split('-');

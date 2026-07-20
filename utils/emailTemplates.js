@@ -75,7 +75,7 @@ const base = (title, accentColor, icon, content) => `<!DOCTYPE html>
           <td style="background:#f8f9fb;padding:20px 36px;border-top:1px solid #f0f0f0;">
             <p style="margin:0;color:#9ca3af;font-size:11px;text-align:center;line-height:1.8;">
               © 2026 Lensmen Rentals · Chennai, India<br/>
-              <a href="mailto:support@lensmenrentals.com" style="color:${BRAND};text-decoration:none;font-weight:600;">support@lensmenrentals.com</a>
+              <a href="mailto:lensmen@live.com" style="color:${BRAND};text-decoration:none;font-weight:600;">lensmen@live.com</a>
               &nbsp;·&nbsp; Mon–Sat, 9am – 7pm
             </p>
           </td>
@@ -177,7 +177,7 @@ exports.passwordReset = (name, otp) => {
 
     <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
       If you didn't request a password reset, please contact us immediately.<br/>
-      <a href="mailto:support@lensmenrentals.com" style="color:${BRAND};text-decoration:none;font-weight:600;">support@lensmenrentals.com</a>
+      <a href="mailto:lensmen@live.com" style="color:${BRAND};text-decoration:none;font-weight:600;">lensmen@live.com</a>
     </p>`
 
   return { subject, html: base(subject, '#f97316', '🔑', content) }
@@ -224,7 +224,7 @@ exports.bookingCancelled = (booking) => {
     ${orderBox(booking)}
 
     <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;text-align:center;">
-      If you have any questions, contact us at <a href="mailto:support@lensmenrentals.com" style="color:${BRAND};text-decoration:none;font-weight:600;">support@lensmenrentals.com</a>
+      If you have any questions, contact us at <a href="mailto:lensmen@live.com" style="color:${BRAND};text-decoration:none;font-weight:600;">lensmen@live.com</a>
     </p>`
 
   return { subject, html: base(subject, '#ef4444', '❌', content) }
@@ -304,7 +304,7 @@ const STATUS_CONFIG = {
         <div style="font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Reason</div>
         <div style="font-size:13px;color:#7f1d1d;">${ex.rejectionReason}</div>
       </div>
-      <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">You're welcome to submit a new request. If you have questions, contact us at <a href="mailto:support@lensmenrentals.com" style="color:${BRAND};text-decoration:none;font-weight:600;">support@lensmenrentals.com</a></p>` : '',
+      <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">You're welcome to submit a new request. If you have questions, contact us at <a href="mailto:lensmen@live.com" style="color:${BRAND};text-decoration:none;font-weight:600;">lensmen@live.com</a></p>` : '',
   },
 }
 
@@ -377,7 +377,7 @@ exports.kycRejected = (userName, reason) => {
 
     <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
       Go to <strong>KYC Documents</strong> in your dashboard to re-upload.<br/>
-      Questions? Email <a href="mailto:support@lensmenrentals.com" style="color:${BRAND};text-decoration:none;font-weight:600;">support@lensmenrentals.com</a>
+      Questions? Email <a href="mailto:lensmen@live.com" style="color:${BRAND};text-decoration:none;font-weight:600;">lensmen@live.com</a>
     </p>`
 
   return { subject, html: base(subject, '#ef4444', '📋', content) }

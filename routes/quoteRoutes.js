@@ -8,5 +8,6 @@ router.post('/',             quoteController.create);
 router.put('/:id',           quoteController.update);
 router.delete('/:id',        quoteController.remove);
 router.post('/:id/convert',  quoteController.convertToOrder);
+router.post('/:id/whatsapp', quoteController.sendWhatsAppMsg);
 
 module.exports = router;

@@ -48,11 +48,15 @@ exports.getAllBookings = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { fullName, email, mobile } = req.body;
+    const { fullName, email, mobile, secondMobile, companyName, address, accountType, gstNumber, gstBusinessName } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
     const existing = await User.findOne({ email });
     if (existing) return res.status(409).json({ message: 'User already exists', user: formatUserResponse(existing) });
-    const user = new User({ fullName: fullName || email, email, mobile: mobile || '', password: '', isVerified: true, adminCreated: true });
+    const user = new User({
+      fullName: fullName || email, email, mobile: mobile || '', password: '', 
+      secondMobile, companyName, address, accountType, gstNumber, gstBusinessName,
+      isVerified: true, adminCreated: true 
+    });
     await user.save();
     res.status(201).json(formatUserResponse(user));
   } catch (err) {
@@ -109,6 +113,9 @@ exports.updateBookingStatus = async (req, res) => {
     if (pickupLocation !== undefined) booking.pickupLocation = pickupLocation;
     if (cancellationReason !== undefined) booking.cancellationReason = cancellationReason;
     if (status === 'Returned' && returnedAt) booking.returnedAt = new Date(returnedAt);
+    if (['Cancelled', 'Rejected'].includes(status)) {
+      booking.pendingAmount = 0;
+    }
 
     // Handle early return: recalculate days and price
     if (status === 'Returned' && isEarlyReturn && actualReturnDate) {
@@ -285,6 +292,36 @@ exports.syncStock = async (req, res) => {
     res.json({ message: `Stock synced — ${updates.length} product(s) updated` })
   } catch (err) {
     res.status(500).json({ message: err.message })
+  }
+}
+
+exports.updateUser = async (req, res) => {
+  try {
+    const { fullName, email, mobile, secondMobile, companyName, address, gstNumber, gstBusinessName, accountType } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // update fields
+    if (fullName !== undefined) user.fullName = fullName;
+    if (email !== undefined) {
+      if (email !== user.email) {
+        const existing = await User.findOne({ email });
+        if (existing) return res.status(409).json({ message: 'Email already exists' });
+      }
+      user.email = email;
+    }
+    if (mobile !== undefined) user.mobile = mobile;
+    if (secondMobile !== undefined) user.secondMobile = secondMobile;
+    if (companyName !== undefined) user.companyName = companyName;
+    if (address !== undefined) user.address = address;
+    if (gstNumber !== undefined) user.gstNumber = gstNumber;
+    if (gstBusinessName !== undefined) user.gstBusinessName = gstBusinessName;
+    if (accountType !== undefined) user.accountType = accountType;
+
+    await user.save();
+    res.json(formatUserResponse(user));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 }
 

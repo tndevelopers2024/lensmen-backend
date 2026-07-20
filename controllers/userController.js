@@ -44,7 +44,7 @@ exports.uploadKyc = async (req, res) => {
     if (files.aadhaarFront?.[0]) kycDocuments.aadhaarFront = `${baseUrl}/uploads/${files.aadhaarFront[0].filename}`;
     if (files.aadhaarBack?.[0])  kycDocuments.aadhaarBack  = `${baseUrl}/uploads/${files.aadhaarBack[0].filename}`;
     if (files.panFront?.[0])     kycDocuments.panFront     = `${baseUrl}/uploads/${files.panFront[0].filename}`;
-    if (files.panBack?.[0])      kycDocuments.panBack      = `${baseUrl}/uploads/${files.panBack[0].filename}`;
+    if (files.drivingLicense?.[0]) kycDocuments.drivingLicense = `${baseUrl}/uploads/${files.drivingLicense[0].filename}`;
 
     user.kycDocuments = kycDocuments;
     user.kycStatus = 'Pending';

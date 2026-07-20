@@ -159,3 +159,34 @@ exports.convertToOrder = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// POST /api/quotes/:id/whatsapp
+exports.sendWhatsAppMsg = async (req, res) => {
+  try {
+    const quote = await Quote.findById(req.params.id);
+    if (!quote) return res.status(404).json({ message: 'Quote not found' });
+    
+    if (!quote.customerMobile) return res.status(400).json({ message: 'No mobile number on quote' });
+
+    const { sendWhatsApp, fmtDate, itemNames } = require('../config/whatsapp');
+    
+    const name  = quote.customerName || 'Customer';
+    const code  = quote.quoteCode || quote._id.toString();
+    const items = itemNames(quote);
+    const date  = fmtDate(quote.startDate);
+    const total = String(quote.totalPrice || 0);
+
+    // Use a pre-approved Meta template for quotes
+    // Meta requires templates for business-initiated messages outside the 24h window
+    await sendWhatsApp(quote.customerMobile, 'lr_quote_sent', [name, code, items, date, total], code);
+    
+    if (quote.status === 'Draft') {
+      quote.status = 'Sent';
+      await quote.save();
+    }
+    
+    res.json({ message: 'WhatsApp message sent', quote });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

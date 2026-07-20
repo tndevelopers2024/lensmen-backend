@@ -84,4 +84,36 @@ const fmtDate = (d) =>
 const itemNames = (booking) =>
   (booking.items || []).map(i => i.name).join(', ') || 'Equipment'
 
-module.exports = { sendWhatsApp, fmtDate, itemNames }
+const sendWhatsAppText = async (mobile, text) => {
+  const token   = process.env.WHATSAPP_TOKEN
+  const phoneId = process.env.WHATSAPP_PHONE_ID
+  if (!token || !phoneId) return
+
+  let phone = String(mobile || '').replace(/\D/g, '')
+  if (phone.startsWith('0')) phone = phone.slice(1)
+  if (phone.length === 10)   phone = '91' + phone
+  if (!phone || phone.length < 10) return
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    to: phone,
+    type: 'text',
+    text: { body: text },
+  }
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error(`[WhatsApp] Text failed:`, err?.error?.message || JSON.stringify(err))
+    }
+  } catch (e) {
+    console.error(`[WhatsApp] Text request error:`, e.message)
+  }
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppText, fmtDate, itemNames }

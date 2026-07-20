@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
     aadhaarFront: String,
     aadhaarBack: String,
     panFront: String,
-    panBack: String,
+    drivingLicense: String,
   },
   kycRejectionReason: String,
   customerClass: { type: String, enum: ['New', 'Regular', 'Frequent', 'VIP', 'Celebrity', 'Corporate'], default: 'New' },
