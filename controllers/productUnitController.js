@@ -8,8 +8,9 @@ const socket      = require('../config/socket');
 const syncProductStock = async (productId) => {
   const units = await ProductUnit.find({ productId }).lean();
   const total = units.length;
-  const available = units.filter(u => u.status === 'available').length;
-  await Product.findByIdAndUpdate(productId, { totalQuantity: total, availableQuantity: available });
+  // Units that are merely 'rented' are still part of the viable inventory for future dates.
+  const usable = units.filter(u => u.status !== 'maintenance' && u.status !== 'damaged').length;
+  await Product.findByIdAndUpdate(productId, { totalQuantity: total, availableQuantity: usable, isAvailable: usable > 0 });
 };
 
 // ── controllers ───────────────────────────────────────────────────────────────

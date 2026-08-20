@@ -37,6 +37,7 @@ exports.createBooking = async (req, res) => {
         if (!product || !product.isAvailable) {
           return res.status(400).json({ message: `Product ${product?.name || p._id} is not available` });
         }
+
         bookingItems.push({ productId: product._id, name: product.name, pricePerDay: product.pricePerDay, imageUrl: product.imageUrl, quantity: 1 });
         totalPrice += diffDays * product.pricePerDay;
       }
@@ -45,10 +46,7 @@ exports.createBooking = async (req, res) => {
       if (!product || !product.isAvailable) {
         return res.status(400).json({ message: 'Product is not available' });
       }
-      const avail = product.availableQuantity ?? 1;
-      if (qty > avail) {
-        return res.status(400).json({ message: `Only ${avail} unit${avail > 1 ? 's' : ''} available` });
-      }
+
       bookingItems.push({ productId: product._id, name: product.name, pricePerDay: product.pricePerDay, imageUrl: product.imageUrl, quantity: qty });
       totalPrice = diffDays * product.pricePerDay * qty;
     } else {
@@ -83,15 +81,8 @@ exports.createBooking = async (req, res) => {
 
     const newBooking = await booking.save();
 
-    // Decrement availableQuantity by the booked quantity
-    for (const item of bookingItems) {
-      const prod = await Product.findById(item.productId);
-      if (prod) {
-        prod.availableQuantity = Math.max(0, (prod.availableQuantity ?? 1) - (item.quantity || 1));
-        prod.isAvailable = prod.availableQuantity > 0;
-        await prod.save();
-      }
-    }
+    // No longer aggressively decrementing product.availableQuantity here.
+    // Stock relies on date overlapping queries via getOverlappingBookedQty.
 
     socket.emit('booking:new', { userEmail: newBooking.userEmail })
 
@@ -156,20 +147,8 @@ exports.cancelBooking = async (req, res) => {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
-    // Restore availableQuantity using stored item quantity
-    const itemsToRestore = booking.items?.length
-      ? booking.items
-      : booking.productId ? [{ productId: booking.productId, quantity: booking.quantity || 1 }] : [];
-
-    for (const item of itemsToRestore) {
-      const prod = await Product.findById(item.productId);
-      if (prod) {
-        const restore = item.quantity || booking.quantity || 1;
-        prod.availableQuantity = Math.min(prod.totalQuantity ?? 1, (prod.availableQuantity ?? 0) + restore);
-        prod.isAvailable = prod.availableQuantity > 0;
-        await prod.save();
-      }
-    }
+    // No longer eagerly restoring product.availableQuantity here,
+    // as it is no longer eagerly decremented upon booking.
 
     const userEmail  = booking.userEmail
     const cancelName = booking.userName

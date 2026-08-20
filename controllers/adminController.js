@@ -141,15 +141,9 @@ exports.updateBookingStatus = async (req, res) => {
         ? booking.items
         : booking.productId ? [{ productId: booking.productId, quantity: booking.quantity || 1 }] : [];
 
-      for (const item of itemsToRestore) {
-        const prod = await Product.findById(item.productId);
-        if (prod) {
-          const qty = item.quantity || 1;
-          prod.availableQuantity = Math.min(prod.totalQuantity ?? 1, (prod.availableQuantity ?? 0) + qty);
-          prod.isAvailable = prod.availableQuantity > 0;
-          await prod.save();
-        }
-      }
+      // Stock restoration is no longer needed here since availableQuantity
+      // is no longer aggressively deducted upon booking.
+      // Date overlaps naturally clear up when the booking ends.
 
       // Free up any physical units assigned to this booking's items
       const ProductUnit = require('../models/ProductUnit');
@@ -277,9 +271,10 @@ exports.syncStock = async (req, res) => {
 
     const updates = []
     for (const prod of products) {
-      const booked = bookedMap[prod._id.toString()] || 0
+      // Since availability is now date-based, we no longer deduct ALL active bookings
+      // from availableQuantity. We simply sync to totalQuantity (or let ProductUnit sync handle it)
       const total  = prod.totalQuantity ?? 1
-      const avail  = Math.max(0, total - booked)
+      const avail  = total
       if (prod.availableQuantity !== avail || prod.isAvailable !== (avail > 0)) {
         prod.availableQuantity = avail
         prod.isAvailable       = avail > 0
