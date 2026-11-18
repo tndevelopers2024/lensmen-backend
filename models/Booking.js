@@ -21,6 +21,11 @@ const bookingSchema = new mongoose.Schema({
     quantity:    { type: Number, default: 1 },
     unitId:   { type: mongoose.Schema.Types.ObjectId, ref: 'ProductUnit', default: null },
     unitCode: { type: String, default: '' },
+    units: [{
+      unitId:   { type: mongoose.Schema.Types.ObjectId, ref: 'ProductUnit' },
+      unitCode: { type: String, default: '' },
+      _id: false,
+    }],
     vendorId:            { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
     vendorName:          { type: String, default: '' },
     vendorCost:          { type: Number, default: 0 },

@@ -13,13 +13,36 @@ const sendEmail = async (to, tpl) => {
   } catch (e) { console.error('Email send failed:', e.message) }
 }
 
+const computeStats = async () => {
+  const [productCount, bookingCount, rev] = await Promise.all([
+    Product.countDocuments(),
+    Booking.countDocuments(),
+    Booking.aggregate([{ $group: { _id: null, total: { $sum: { $ifNull: ['$totalPrice', 0] } } } }]),
+  ]);
+  return { productCount, bookingCount, totalRevenue: rev[0]?.total || 0 };
+};
+
 exports.getStats = async (req, res) => {
   try {
-    const productCount = await Product.countDocuments();
-    const bookingCount = await Booking.countDocuments();
-    const bookings = await Booking.find();
-    const totalRevenue = bookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
-    res.json({ productCount, bookingCount, totalRevenue });
+    res.json(await computeStats());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Lean payload for the admin dashboard: stats + only the fields the widgets render, in one round trip.
+exports.getDashboard = async (req, res) => {
+  try {
+    const [stats, bookings] = await Promise.all([
+      computeStats(),
+      Booking.find()
+        .select('userName userMobile userEmail status startDate endDate createdAt totalPrice productId imageUrl items.productId items.name items.imageUrl items.unitCode items.sku')
+        .populate('productId', 'name sku imageUrl')
+        .populate('items.productId', 'name sku imageUrl')
+        .sort({ createdAt: -1 })
+        .lean(),
+    ]);
+    res.json({ stats, bookings });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -33,14 +56,12 @@ exports.getAllBookings = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    const bookingsWithUserKyc = await Promise.all(
-      bookings.map(async (booking) => {
-        const user = await User.findOne({ email: booking.userEmail }).select('-password').lean();
-        return { ...booking, userKyc: user || null };
-      })
-    );
+    // One batched user query instead of one query per booking (was an N+1).
+    const emails = [...new Set(bookings.map(b => b.userEmail).filter(Boolean))];
+    const users = await User.find({ email: { $in: emails } }).select('-password').lean();
+    const byEmail = new Map(users.map(u => [u.email, u]));
 
-    res.json(bookingsWithUserKyc);
+    res.json(bookings.map(b => ({ ...b, userKyc: byEmail.get(b.userEmail) || null })));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -147,7 +168,10 @@ exports.updateBookingStatus = async (req, res) => {
 
       // Free up any physical units assigned to this booking's items
       const ProductUnit = require('../models/ProductUnit');
-      const unitIds = itemsToRestore.map(item => item.unitId).filter(Boolean);
+      const unitIds = itemsToRestore.flatMap(item => [
+        ...(item.units || []).map(u => u.unitId),
+        item.unitId,
+      ]).filter(Boolean);
       if (unitIds.length) {
         await ProductUnit.updateMany(
           { _id: { $in: unitIds } },
@@ -532,29 +556,40 @@ exports.markVendorPayment = async (req, res) => {
 
 exports.assignItemUnit = async (req, res) => {
   try {
-    const { itemIndex, unitId, unitCode, pickupLocation } = req.body;
+    const { itemIndex, pickupLocation } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
-    if (!booking.items[itemIndex]) return res.status(404).json({ message: 'Item not found' });
+    const item = booking.items[itemIndex];
+    if (!item) return res.status(404).json({ message: 'Item not found' });
 
     const ProductUnit = require('../models/ProductUnit');
 
-    // Unmark previous unit if there was one
-    const prevUnitId = booking.items[itemIndex].unitId;
-    if (prevUnitId && String(prevUnitId) !== String(unitId)) {
-      await ProductUnit.findByIdAndUpdate(prevUnitId, { status: 'available', currentBookingId: null });
+    // Accept `units: [{unitId, unitCode}]`; fall back to legacy single unitId/unitCode
+    let units = Array.isArray(req.body.units)
+      ? req.body.units
+      : (req.body.unitId ? [{ unitId: req.body.unitId, unitCode: req.body.unitCode }] : []);
+    units = units.filter(u => u && u.unitId);
+    const seen = new Set();
+    units = units.filter(u => !seen.has(String(u.unitId)) && seen.add(String(u.unitId)));
+
+    // Previously assigned units (new array + legacy single field)
+    const prevIds = new Set((item.units || []).map(u => String(u.unitId)));
+    if (item.unitId) prevIds.add(String(item.unitId));
+    const nextIds = new Set(units.map(u => String(u.unitId)));
+
+    // Release units that were dropped
+    const released = [...prevIds].filter(id => !nextIds.has(id));
+    if (released.length) {
+      await ProductUnit.updateMany({ _id: { $in: released } }, { status: 'available', currentBookingId: null });
+    }
+    // Mark selected units as rented
+    if (units.length) {
+      await ProductUnit.updateMany({ _id: { $in: [...nextIds] } }, { status: 'rented', currentBookingId: booking._id });
     }
 
-    if (unitId) {
-      // Mark new unit as rented
-      await ProductUnit.findByIdAndUpdate(unitId, { status: 'rented', currentBookingId: booking._id });
-      booking.items[itemIndex].unitId   = unitId;
-      booking.items[itemIndex].unitCode = unitCode || '';
-    } else {
-      // Clearing assignment
-      booking.items[itemIndex].unitId   = null;
-      booking.items[itemIndex].unitCode = '';
-    }
+    item.units    = units.map(u => ({ unitId: u.unitId, unitCode: u.unitCode || '' }));
+    item.unitId   = units[0]?.unitId || null;
+    item.unitCode = units.map(u => u.unitCode).filter(Boolean).join(', ');
 
     if (pickupLocation !== undefined) {
       booking.pickupLocation = pickupLocation;
@@ -564,7 +599,7 @@ exports.assignItemUnit = async (req, res) => {
     await booking.save();
     socket.emit('booking:updated', { userEmail: booking.userEmail });
     socket.emit('product:updated');
-    res.json({ message: 'Unit assigned', booking });
+    res.json({ message: 'Units assigned', booking });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 

@@ -11,6 +11,7 @@ router.post('/upload-image', upload.single('image'), (req, res) => {
 });
 
 router.get('/stats', adminController.getStats);
+router.get('/dashboard', adminController.getDashboard);
 router.post('/sync-stock', adminController.syncStock);
 router.get('/products', productController.getAllProductsAdmin);
 router.get('/bookings',  adminController.getAllBookings);

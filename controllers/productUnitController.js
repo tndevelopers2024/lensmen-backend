@@ -27,14 +27,15 @@ exports.getUnits = async (req, res) => {
 // GET /api/products/:productId/units/available  — available + currently-assigned unit
 exports.getAvailableUnits = async (req, res) => {
   try {
-    const { currentUnitId } = req.query;
+    const currentUnitId = req.query.currentUnitId;
+    const currentIds = String(req.query.currentUnitIds || currentUnitId || '').split(',').filter(Boolean);
     const query = { productId: req.params.productId, status: 'available' };
     const units = await ProductUnit.find(query).sort({ unitCode: 1 }).lean();
     // Also include the currently assigned unit so it shows in dropdown even if status=rented
-    if (currentUnitId) {
-      const current = await ProductUnit.findById(currentUnitId).lean();
-      if (current && !units.find(u => String(u._id) === currentUnitId)) {
-        units.unshift(current);
+    if (currentIds.length) {
+      const currents = await ProductUnit.find({ _id: { $in: currentIds } }).lean();
+      for (const c of currents.reverse()) {
+        if (!units.find(u => String(u._id) === String(c._id))) units.unshift(c);
       }
     }
     res.json(units);
